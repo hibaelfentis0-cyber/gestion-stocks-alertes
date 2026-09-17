@@ -10,7 +10,7 @@ st.title("🔄 Workflow & Dashboard : Suivi des Alertes et Commandes")
 @st.cache_data
 def load_data():
     try:
-        xls = pd.ExcelFile("Material_Shortage_Alert_System1.xlsx")
+        xls = pd.ExcelFile("Material_Shortage_Alert_System.xlsx")
         return {sheet: pd.read_excel(xls, sheet_name=sheet) for sheet in xls.sheet_names}
     except Exception as e:
         return None
