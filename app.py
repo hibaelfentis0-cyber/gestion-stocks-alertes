@@ -1,34 +1,94 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="Supply Chain Control", layout="wide")
+# Configuration de la page
+st.set_page_config(page_title="Supply Chain End-to-End Control", layout="wide")
 
-st.title("Supply Chain Control : Gestion des Alertes de Stock")
+st.title("🔄 Workflow & Dashboard : Suivi des Alertes et Commandes")
 
+# Chargement du fichier Excel
 @st.cache_data
 def load_data():
     try:
-        return pd.read_excel("Production1_Alerts_Dashboard.xlsx")
+        xls = pd.ExcelFile("Material_Shortage_Alert_System (1).xlsx")
+        return {sheet: pd.read_excel(xls, sheet_name=sheet) for sheet in xls.sheet_names}
     except Exception as e:
         return None
 
-df = load_data()
+sheets = load_data()
 
-if df is None:
-    st.error("⚠️ Fichier Excel introuvable ou illisible.")
+if sheets is None:
+    st.error("⚠️ Fichier Excel introuvable. Veuillez vérifier que 'Material_Shortage_Alert_System (1).xlsx' est bien sur GitHub.")
 else:
-    st.sidebar.title("Navigation")
-    menu = st.sidebar.radio("Aller à", ["Tableau de Bord", "Nouvelle Alerte", "Historique"])
+    # Sidebar de navigation
+    st.sidebar.title("🧭 Navigation Supply Chain")
+    menu = st.sidebar.radio("Étapes du Processus", [
+        "📊 Tableau de Bord Global", 
+        "1️⃣ Production (Déclaration)", 
+        "2️⃣ Logistique (Vérification Stock)", 
+        "3️⃣ Approvisionnement (Commandes & PO)", 
+        "4️⃣ Suivi Détaillé des Commandes"
+    ])
 
-    if menu == "Tableau de Bord":
-        st.subheader("📊 Tableau de Bord Global")
-        st.dataframe(df, use_container_width=True)
-        st.metric("Total Articles", len(df))
+    # 1. TABLEAU DE BORD GLOBAL
+    if menu == "📊 Tableau de Bord Global":
+        st.subheader("📊 Tableau de Bord Global - Vue d'ensemble")
+        
+        col1, col2, col3 = st.columns(3)
+        if "PRODUCTION REQUEST" in sheets:
+            col1.metric("Requêtes Production", len(sheets["PRODUCTION REQUEST"]))
+        if "LOGISTICS ACTION" in sheets:
+            col2.metric("Actions Logistiques", len(sheets["LOGISTICS ACTION"]))
+        if "PROCUREMENT ACTION" in sheets:
+            col3.metric("Commandes / PO Lancés", len(sheets["PROCUREMENT ACTION"]))
 
-    elif menu == "Nouvelle Alerte":
-        st.subheader("🚨 Déclarer une Alerte")
-        st.success("Formulaire prêt.")
+        st.markdown("---")
+        st.markdown("### 📋 Aperçu du fichier DASHBOARD d'origine")
+        if "DASHBOARD" in sheets:
+            st.dataframe(sheets["DASHBOARD"], use_container_width=True)
 
-    elif menu == "Historique":
-        st.subheader("📁 Historique")
-        st.dataframe(df, use_container_width=True)
+    # 2. ÉTAPE PRODUCTION
+    elif menu == "1️⃣ Production (Déclaration)":
+        st.subheader("🚨 Étape 1 : Déclaration d'Alerte (Production)")
+        st.info("La production signale un besoin ou un risque de rupture sur une ligne.")
+        if "PRODUCTION REQUEST" in sheets:
+            df_prod = sheets["PRODUCTION REQUEST"]
+            st.dataframe(df_prod, use_container_width=True)
+            
+            # Graphique simple des priorités si la colonne existe
+            if 'Priority' in df_prod.columns:
+                st.bar_chart(df_prod['Priority'].value_counts())
+
+    # 3. ÉTAPE LOGISTIQUE
+    elif menu == "2️⃣ Logistique (Vérification Stock)":
+        st.subheader("📦 Étape 2 : Vérification Physique (Logistique)")
+        st.info("La logistique vérifie les entrepôts, analyse les écarts et valide s'il faut escalader aux achats.")
+        if "LOGISTICS ACTION" in sheets:
+            df_log = sheets["LOGISTICS ACTION"]
+            st.dataframe(df_log, use_container_width=True)
+
+    # 4. ÉTAPE APPROVISIONNEMENT
+    elif menu == "3️⃣ Approvisionnement (Commandes & PO)":
+        st.subheader("🛒 Étape 3 : Lancement des Commandes (Approvisionnement)")
+        st.info("Création des bons de commande (PO) auprès des fournisseurs et suivi des confirmations.")
+        if "PROCUREMENT ACTION" in sheets:
+            df_proc = sheets["PROCUREMENT ACTION"]
+            st.dataframe(df_proc, use_container_width=True)
+
+    # 5. SUIVI DÉTAILLÉ DES COMMANDES
+    elif menu == "4️⃣ Suivi Détaillé des Commandes":
+        st.subheader("🔍 Suivi Détaillé & Analyse des Commandes")
+        st.write("Filtrez et analysez les détails des commandes en cours de livraison.")
+        
+        if "PROCUREMENT ACTION" in sheets and "PRODUCTION REQUEST" in sheets:
+            df_proc = sheets["PROCUREMENT ACTION"]
+            df_prod = sheets["PRODUCTION REQUEST"]
+            
+            # Filtre par statut PO si la colonne existe
+            if 'PO Status' in df_proc.columns:
+                statuts = df_proc['PO Status'].dropna().unique().tolist()
+                choix_statut = st.multiselect("Filtrer par Statut PO", options=statuts, default=statuts)
+                df_filtered = df_proc[df_proc['PO Status'].isin(choix_statut)]
+                st.dataframe(df_filtered, use_container_width=True)
+            else:
+                st.dataframe(df_proc, use_container_width=True)
