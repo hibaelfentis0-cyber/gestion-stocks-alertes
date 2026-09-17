@@ -10,7 +10,7 @@ st.title("🔄 Workflow & Dashboard : Suivi des Alertes et Commandes")
 @st.cache_data
 def load_data():
     try:
-        xls = pd.ExcelFile("Material_Shortage_Alert_System.xlsx")
+        xls = pd.ExcelFile("Material_Shortage_Alert_System1.xlsx")
         return {sheet: pd.read_excel(xls, sheet_name=sheet) for sheet in xls.sheet_names}
     except Exception as e:
         return None
@@ -18,7 +18,7 @@ def load_data():
 sheets = load_data()
 
 if sheets is None:
-    st.error("⚠️ Fichier Excel introuvable. Veuillez vérifier que 'Material_Shortage_Alert_System (1).xlsx' est bien sur GitHub.")
+    st.error("⚠️ Fichier Excel introuvable. Veuillez vérifier que 'Material_Shortage_Alert_System.xlsx' est bien sur GitHub.")
 else:
     # Sidebar de navigation
     st.sidebar.title("🧭 Navigation Supply Chain")
@@ -45,18 +45,24 @@ else:
         st.markdown("---")
         st.markdown("### 📋 Aperçu du fichier DASHBOARD d'origine")
         if "DASHBOARD" in sheets:
-            st.dataframe(sheets["DASHBOARD"], use_container_width=True)
+            df_dash = sheets["DASHBOARD"]
+            
+            # Nettoyage automatique si les en-têtes sont décalés (suppression des lignes/colonnes vides)
+            df_dash = df_dash.dropna(how='all').dropna(axis=1, how='all')
+            
+            st.dataframe(df_dash, use_container_width=True)
 
     # 2. ÉTAPE PRODUCTION
     elif menu == "1️⃣ Production (Déclaration)":
         st.subheader("🚨 Étape 1 : Déclaration d'Alerte (Production)")
         st.info("La production signale un besoin ou un risque de rupture sur une ligne.")
         if "PRODUCTION REQUEST" in sheets:
-            df_prod = sheets["PRODUCTION REQUEST"]
+            df_prod = sheets["PRODUCTION REQUEST"].dropna(how='all').dropna(axis=1, how='all')
             st.dataframe(df_prod, use_container_width=True)
             
-            # Graphique simple des priorités si la colonne existe
+            # Graphique des priorités si la colonne existe
             if 'Priority' in df_prod.columns:
+                st.subheader("📈 Répartition par Priorité")
                 st.bar_chart(df_prod['Priority'].value_counts())
 
     # 3. ÉTAPE LOGISTIQUE
@@ -64,7 +70,7 @@ else:
         st.subheader("📦 Étape 2 : Vérification Physique (Logistique)")
         st.info("La logistique vérifie les entrepôts, analyse les écarts et valide s'il faut escalader aux achats.")
         if "LOGISTICS ACTION" in sheets:
-            df_log = sheets["LOGISTICS ACTION"]
+            df_log = sheets["LOGISTICS ACTION"].dropna(how='all').dropna(axis=1, how='all')
             st.dataframe(df_log, use_container_width=True)
 
     # 4. ÉTAPE APPROVISIONNEMENT
@@ -72,7 +78,7 @@ else:
         st.subheader("🛒 Étape 3 : Lancement des Commandes (Approvisionnement)")
         st.info("Création des bons de commande (PO) auprès des fournisseurs et suivi des confirmations.")
         if "PROCUREMENT ACTION" in sheets:
-            df_proc = sheets["PROCUREMENT ACTION"]
+            df_proc = sheets["PROCUREMENT ACTION"].dropna(how='all').dropna(axis=1, how='all')
             st.dataframe(df_proc, use_container_width=True)
 
     # 5. SUIVI DÉTAILLÉ DES COMMANDES
@@ -80,9 +86,8 @@ else:
         st.subheader("🔍 Suivi Détaillé & Analyse des Commandes")
         st.write("Filtrez et analysez les détails des commandes en cours de livraison.")
         
-        if "PROCUREMENT ACTION" in sheets and "PRODUCTION REQUEST" in sheets:
-            df_proc = sheets["PROCUREMENT ACTION"]
-            df_prod = sheets["PRODUCTION REQUEST"]
+        if "PROCUREMENT ACTION" in sheets:
+            df_proc = sheets["PROCUREMENT ACTION"].dropna(how='all').dropna(axis=1, how='all')
             
             # Filtre par statut PO si la colonne existe
             if 'PO Status' in df_proc.columns:
