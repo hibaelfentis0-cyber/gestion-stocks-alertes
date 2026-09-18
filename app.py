@@ -6,14 +6,14 @@ st.set_page_config(
     page_title="Supply Chain Control Center", page_icon="📦", layout="wide"
 )
 
-# Chargement des 4 fichiers Excel avec le bon décalage (header=3)
+
+# Chargement des 4 fichiers Excel avec header=2 (la ligne 3 exacte d'Excel)
 @st.cache_data
 def load_data():
-  # On lit à partir de la ligne 4 (index 3) pour capturer les vrais titres des colonnes
-  df_prod = pd.read_excel("01_Production_Stock_Alert.xlsx", header=3)
-  df_log = pd.read_excel("02_Logistics_Stock_Alert.xlsx", header=3)
-  df_purch = pd.read_excel("03_Purchasing_Supply_Stock_Alert.xlsx", header=3)
-  df_trans = pd.read_excel("04_Transport_Delivery_Stock_Alert.xlsx", header=3)
+  df_prod = pd.read_excel("01_Production_Stock_Alert.xlsx", header=2)
+  df_log = pd.read_excel("02_Logistics_Stock_Alert.xlsx", header=2)
+  df_purch = pd.read_excel("03_Purchasing_Supply_Stock_Alert.xlsx", header=2)
+  df_trans = pd.read_excel("04_Transport_Delivery_Stock_Alert.xlsx", header=2)
   return df_prod, df_log, df_purch, df_trans
 
 
@@ -79,10 +79,7 @@ if menu == "📊 Global Dashboard":
 # ==================== 2. PRODUCTION ====================
 elif menu == "🏭 Production":
   st.title("🏭 Production Stock Alert Monitoring")
-  st.write(
-      "Detailed tracking and management of critical stock alerts coming from"
-      " production lines."
-  )
+  st.write("Detailed tracking and management of critical stock alerts.")
   st.dataframe(df_prod, use_container_width=True)
 
 # ==================== 3. LOGISTICS ====================
@@ -96,6 +93,12 @@ elif menu == "🛒 Purchasing":
   st.title("🛒 Purchasing & Supply Chain")
   st.write("Shortage calculations, purchase orders, and supplier lead times.")
   st.dataframe(df_purch, use_container_width=True)
+
+# ==================== 5. TRANSPORT ====================
+elif menu == "🚚 Transport":
+  st.title("🚚 Transport & Delivery Tracking")
+  st.write("Carrier performance, shipment status, and delivery delay tracking.")
+  st.dataframe(df_trans, use_container_width=True)
 
 # ==================== 5. TRANSPORT ====================
 elif menu == "🚚 Transport":
