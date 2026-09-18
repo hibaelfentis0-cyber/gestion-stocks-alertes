@@ -6,8 +6,9 @@ st.set_page_config(
     page_title="Supply Chain Control Center", page_icon="📦", layout="wide"
 )
 
-# Chargement des données avec persistance de session pour garder les ajouts
+# Chargement des données avec persistance de session
 if "df_prod" not in st.session_state:
+
   @st.cache_data
   def load_data():
     df_prod = pd.read_excel("01_Production_Stock_Alert.xlsx", header=2)
@@ -16,8 +17,12 @@ if "df_prod" not in st.session_state:
     df_trans = pd.read_excel("04_Transport_Delivery_Stock_Alert.xlsx", header=2)
     return df_prod, df_log, df_purch, df_trans
 
-
-  st.session_state.df_prod, st.session_state.df_log, st.session_state.df_purch, st.session_state.df_trans = load_data()
+  (
+      st.session_state.df_prod,
+      st.session_state.df_log,
+      st.session_state.df_purch,
+      st.session_state.df_trans,
+  ) = load_data()
 
 # ==================== NAVIGATION ====================
 st.sidebar.title("🛠️ Supply Chain Menu")
@@ -40,7 +45,6 @@ if menu == "📊 Global Dashboard":
       "Overview and Key Performance Indicators (KPIs) across all departments."
   )
 
-  # KPIs Metrics
   col1, col2, col3, col4 = st.columns(4)
   with col1:
     st.metric(
@@ -69,7 +73,6 @@ if menu == "📊 Global Dashboard":
 
   st.divider()
 
-  # Simple Chart
   st.subheader("📈 Alerts Distribution by Department")
   chart_data = pd.DataFrame({
       "Department": [
@@ -88,12 +91,11 @@ if menu == "📊 Global Dashboard":
   st.bar_chart(chart_data.set_index("Department"))
 
 
-# Fonction utilitaire pour afficher un tableau filtré avec style
+# Fonction utilitaire pour les départements
 def display_department_view(df, title, description):
   st.title(title)
   st.write(description)
 
-  # --- Filtres dynamiques ---
   col_f1, col_f2 = st.columns(2)
   filtered_df = df.copy()
 
@@ -113,10 +115,8 @@ def display_department_view(df, title, description):
     if selected_status != "All":
       filtered_df = filtered_df[filtered_df["Alert Status"] == selected_status]
 
-  # --- Affichage du tableau ---
   st.dataframe(filtered_df, use_container_width=True)
 
-  # --- Bouton de téléchargement ---
   csv = filtered_df.to_csv(index=False).encode("utf-8")
   st.download_button(
       label="📥 Download filtered data as CSV",
@@ -127,7 +127,7 @@ def display_department_view(df, title, description):
 
 
 # ==================== 2. PRODUCTION ====================
-elif menu == "🏭 Production":
+if menu == "🏭 Production":
   display_department_view(
       st.session_state.df_prod,
       "🏭 Production Stock Alert Monitoring",
@@ -182,7 +182,6 @@ elif menu == "➕ Add New Alert":
           "Alert Status": status,
           "Comments": comments,
       }
-      # Ajouter dynamiquement dans le DataFrame correspondant
       if dept == "Production":
         st.session_state.df_prod = pd.concat(
             [st.session_state.df_prod, pd.DataFrame([new_row])],
