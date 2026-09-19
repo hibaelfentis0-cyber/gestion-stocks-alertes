@@ -1,40 +1,56 @@
-from github import Github
-import pandas as pd
+import base64
+import json
+import requests
 import streamlit as st
+import pandas as pd
 
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(
     page_title="Supply Chain Control Center", page_icon="📊", layout="wide"
 )
 
-# --- CONFIGURATION DE LA CONNEXION GITHUB ---
+# --- FONCTION DE CHARGEMENT ET SAUVEGARDE VIA API REST GITHUB ---
 
 
-def get_github_repo():
-  token = st.secrets["GITHUB_TOKEN"]
-  repo_name = st.secrets["REPO_NAME"]
-  g = Github(token)
-  return g.get_repo(repo_name)
-
-
-# --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE ---
-
-
-@st.cache_data(ttl=60)
 def load_data(category_name):
-  """Charge le fichier CSV depuis GitHub pour la catégorie donnée."""
+  """Charge le fichier CSV depuis GitHub via l'API REST."""
   try:
-    repo = get_github_repo()
-    path = f"data/{category_name}.csv"
-    file_content = repo.get_contents(path)
-    return pd.read_csv(pd.io.common.StringIO(file_content.decoded_content.decode("utf-8")))
+    token = st.secrets["GITHUB_TOKEN"]
+    repo_name = st.secrets["REPO_NAME"]
+    url = f"https://api.github.com/repos/{repo_name}/contents/data/{category_name}.csv"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+      file_data = response.json()
+      decoded_content = base64.b64decode(file_data["content"]).decode("utf-8")
+      return pd.read_csv(pd.io.common.StringIO(decoded_content))
+    else:
+      # Données par défaut si le fichier n'existe pas encore
+      return pd.DataFrame({
+          "Alert ID": ["PA-001", "PA-002"],
+          "Date": ["2026-09-18", "2026-09-18"],
+          "Product Code": ["RM-1001", "RM-1002"],
+          "Product Description": [
+              "Aluminium Component A",
+              "Aluminium Component B",
+          ],
+          "Quantity Available": [420, 850],
+          "Quantity Required": [300, 250],
+          "Status": ["Active", "Pending"],
+      })
   except Exception:
-    # Données par défaut si le fichier n'existe pas encore sur GitHub
     return pd.DataFrame({
         "Alert ID": ["PA-001", "PA-002"],
         "Date": ["2026-09-18", "2026-09-18"],
         "Product Code": ["RM-1001", "RM-1002"],
-        "Product Description": ["Aluminium Component A", "Aluminium Component B"],
+        "Product Description": [
+            "Aluminium Component A",
+            "Aluminium Component B",
+        ],
         "Quantity Available": [420, 850],
         "Quantity Required": [300, 250],
         "Status": ["Active", "Pending"],
@@ -42,25 +58,50 @@ def load_data(category_name):
 
 
 def save_data(df, category_name):
-  """Enregistre le DataFrame modifié directement sur GitHub en arrière-plan."""
+  """Enregistre le DataFrame sur GitHub via l'API REST (création ou mise à jour)."""
   try:
-    repo = get_github_repo()
-    path = f"data/{category_name}.csv"
+    token = st.secrets["GITHUB_TOKEN"]
+    repo_name = st.secrets["REPO_NAME"]
+    url = f"https://api.github.com/repos/{repo_name}/contents/data/{category_name}.csv"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+
     csv_content = df.to_csv(index=False)
-    message = f"Mise à jour des données {category_name} via Streamlit"
-
-    try:
-      file = repo.get_contents(path)
-      repo.update_file(path, message, csv_content, file.sha, branch="main")
-    except Exception:
-      repo.create_file(path, message, csv_content, branch="main")
-
-    st.success(
-        f"Modifications enregistrées avec succès pour {category_name} sur"
-        " GitHub !"
+    encoded_content = base64.b64encode(csv_content.encode("utf-8")).decode(
+        "utf-8"
     )
+
+    # 1. Vérifier si le fichier existe pour récupérer son SHA (nécessaire pour la mise à jour)
+    get_response = requests.get(url, headers=headers)
+    sha = None
+    if get_response.status_code == 200:
+      sha = get_response.json().get("sha")
+
+    # 2. Préparer la requête de sauvegarde (création ou mise à jour)
+    data = {
+        "message": f"Mise à jour automatique des données {category_name} via Streamlit",
+        "content": encoded_content,
+        "branch": "main",
+    }
+    if sha:
+      data["sha"] = sha
+
+    put_response = requests.put(url, headers=headers, data=json.dumps(data))
+
+    if put_response.status_code in [200, 201]:
+      st.success(
+          f"Modifications enregistrées avec succès pour {category_name} sur"
+          " GitHub !"
+      )
+    else:
+      st.error(
+          f"Erreur GitHub ({put_response.status_code}) :"
+          f" {put_response.json().get('message', 'Erreur inconnue')}"
+      )
   except Exception as e:
-    st.error(f"Erreur lors de la sauvegarde sur GitHub : {e}")
+    st.error(f"Erreur technique lors de la sauvegarde : {e}")
 
 
 # --- MENU LATÉRAL ---
@@ -82,27 +123,19 @@ if menu == "Global Dashboard":
   st.title("📊 Supply Chain - Global Dashboard")
   st.markdown("Overview and Key Performance Indicators (KPIs) across all departments.")
 
-  # Affichage des KPIs
   col1, col2, col3, col4 = st.columns(4)
   with col1:
-    st.metric(
-        label="Production Alerts", value="4", delta="-2 vs yesterday"
-    )  #[cite: 8]
+    st.metric(label="Production Alerts", value="4", delta="-2 vs yesterday")
   with col2:
-    st.metric(label="Logistics Items", value="4", delta="Stable")  #[cite: 8]
+    st.metric(label="Logistics Items", value="4", delta="Stable")
   with col3:
-    st.metric(
-        label="Purchasing Orders", value="4", delta="+3 pending"
-    )  #[cite: 8]
+    st.metric(label="Purchasing Orders", value="4", delta="+3 pending")
   with col4:
-    st.metric(
-        label="Transport Deliveries", value="4", delta="1 delayed"
-    )  #[cite: 8]
+    st.metric(label="Transport Deliveries", value="4", delta="1 delayed")
 
   st.markdown("---")
   st.subheader("📈 Alerts Distribution by Department")
 
-  # Graphique récapitulatif simple
   chart_data = pd.DataFrame(
       {
           "Department": [
@@ -132,9 +165,7 @@ elif menu == "Production":
 # --- 3. MODULE LOGISTICS ---
 elif menu == "Logistics":
   st.title("📦 Logistics & Warehouse Processing")
-  st.markdown(
-      "Warehouse stock levels, bin locations, and pallet management."
-  )  #[cite: 7]
+  st.markdown("Warehouse stock levels, bin locations, and pallet management.")
 
   df_log = load_data("Logistics")
   edited_log = st.data_editor(df_log, num_rows="dynamic", key="editor_logistics")
@@ -187,7 +218,6 @@ elif menu == "Add New Alert":
     )
 
     if submit_button:
-      # Charger les données actuelles du département choisi
       df_current = load_data(dept)
       new_row = pd.DataFrame({
           "Alert ID": [f"AL-{len(df_current)+1:03d}"],
@@ -198,7 +228,5 @@ elif menu == "Add New Alert":
           "Quantity Required": [qty_req],
           "Status": ["New Alert"],
       })
-      # Ajouter la nouvelle ligne
       updated_df = pd.concat([df_current, new_row], ignore_index=True)
-      # Sauvegarder sur GitHub
       save_data(updated_df, dept)
