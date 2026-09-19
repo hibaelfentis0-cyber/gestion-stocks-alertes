@@ -9,6 +9,87 @@ st.set_page_config(
     page_title="Supply Chain Control Center", page_icon="📊", layout="wide"
 )
 
+# --- FONCTION DE CHARGEMENT PAR DÉFAUT AVEC LES BONS EN-TÊTES ---
+
+
+def get_default_dataframe(category_name):
+  if category_name == "Production":
+    return pd.DataFrame({
+        "Alert ID": ["PA-001", "PA-002"],
+        "Date": ["2026-09-18", "2026-09-18"],
+        "Time": ["08:30", "09:15"],
+        "Product Code": ["RM-1001", "RM-1002"],
+        "Product Description": [
+            "Aluminium Component A",
+            "Aluminium Component B",
+        ],
+        "Production Line": ["Line 1", "Line 2"],
+        "Current Stock": [420, 850],
+        "Minimum Stock": [100, 200],
+        "Required Quantity": [300, 250],
+        "Priority": ["High", "Medium"],
+        "Alert Status": ["Active", "Pending"],
+        "Action Required": ["Restock", "Monitor"],
+        "Responsible": ["Karim M.", "Sara B."],
+        "Comments": ["Urgent delivery", "Stable"],
+    })
+  elif category_name == "Logistics":
+    return pd.DataFrame({
+        "Alert ID": ["LG-001"],
+        "Date": ["2026-09-18"],
+        "Product Code": ["RM-1001"],
+        "Product Description": ["Aluminium Component A"],
+        "Quantity Available": [420],
+        "Quantity Required": [300],
+        "Shortage Quantity": [0],
+        "Warehouse Location": ["Zone A"],
+        "AvailablePallets": [10],
+        "Required Pallets": [5],
+        "Stock Status": ["Available"],
+        "Action Required": ["None"],
+        "Responsible Person": ["Karim M."],
+        "ProcessingStatus": ["Done"],
+        "Comments": ["OK"],
+    })
+  elif category_name == "Purchasing":
+    return pd.DataFrame({
+        "Alert ID": ["PU-001"],
+        "Date": ["2026-09-18"],
+        "Product Code": ["RM-1001"],
+        "Product Description": ["Aluminium Component A"],
+        "Required Quantity": [300],
+        "Current Stock": [420],
+        "Shortage Quantity": [0],
+        "Supplier": ["Supplier X"],
+        "Purchase Order": ["PO-9988"],
+        "Order Date": ["2026-09-10"],
+        "Expected Delivery": ["2026-09-25"],
+        "Lead Time (Days)": [15],
+        "Purchasing Status": ["Confirmed"],
+        "Priority": ["High"],
+        "Comments": ["On track"],
+    })
+  elif category_name == "Transport":
+    return pd.DataFrame({
+        "Alert ID": ["TR-001"],
+        "Product Code": ["RM-1001"],
+        "Product Description": ["Aluminium Component A"],
+        "Quantity to Deliver": [300],
+        "Number of Pallets": [5],
+        "Supplier": ["Supplier X"],
+        "Transport Company": ["LogiTrans"],
+        "Truck / Vehicle ID": ["TR-123-AB"],
+        "Loading Date": ["2026-09-24"],
+        "Planned Delivery Date": ["2026-09-25"],
+        "Actual Delivery Date": [""],
+        "Delivery Status": ["In Transit"],
+        "Delay (Days)": [0],
+        "Responsible Person": ["Ali T."],
+        "Comments": ["Scheduled"],
+    })
+  return pd.DataFrame()
+
+
 # --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE VIA API REST GITHUB ---
 
 
@@ -29,31 +110,9 @@ def load_data(category_name):
       decoded_content = base64.b64decode(file_data["content"]).decode("utf-8")
       return pd.read_csv(pd.io.common.StringIO(decoded_content))
     else:
-      return pd.DataFrame({
-          "Alert ID": ["PA-001", "PA-002"],
-          "Date": ["2026-09-18", "2026-09-18"],
-          "Product Code": ["RM-1001", "RM-1002"],
-          "Product Description": [
-              "Aluminium Component A",
-              "Aluminium Component B",
-          ],
-          "Quantity Available": [420, 850],
-          "Quantity Required": [300, 250],
-          "Status": ["Active", "Pending"],
-      })
+      return get_default_dataframe(category_name)
   except Exception:
-    return pd.DataFrame({
-        "Alert ID": ["PA-001", "PA-002"],
-        "Date": ["2026-09-18", "2026-09-18"],
-        "Product Code": ["RM-1001", "RM-1002"],
-        "Product Description": [
-            "Aluminium Component A",
-            "Aluminium Component B",
-        ],
-        "Quantity Available": [420, 850],
-        "Quantity Required": [300, 250],
-        "Status": ["Active", "Pending"],
-    })
+    return get_default_dataframe(category_name)
 
 
 def save_data(df, category_name):
@@ -207,8 +266,7 @@ elif menu == "Add New Alert":
     )
     product_code = st.text_input("Product Code")
     description = st.text_input("Product Description")
-    qty_avail = st.number_input("Quantity Available", min_value=0, value=100)
-    qty_req = st.number_input("Quantity Required", min_value=0, value=100)
+    qty_avail = st.number_input("Quantity / Value", min_value=0, value=100)
 
     submit_button = st.form_submit_button(
         "Ajouter et enregistrer sur GitHub"
@@ -216,14 +274,14 @@ elif menu == "Add New Alert":
 
     if submit_button:
       df_current = load_data(dept)
-      new_row = pd.DataFrame({
-          "Alert ID": [f"AL-{len(df_current)+1:03d}"],
-          "Date": [str(pd.Timestamp.today().date())],
-          "Product Code": [product_code],
-          "Product Description": [description],
-          "Quantity Available": [qty_avail],
-          "Quantity Required": [qty_req],
-          "Status": ["New Alert"],
-      })
+      # Ajout d'une ligne générique respectant la structure du département choisi
+      new_row = df_current.iloc[[0]].copy()
+      if "Alert ID" in new_row.columns:
+        new_row["Alert ID"] = f"AL-{len(df_current)+1:03d}"
+      if "Product Code" in new_row.columns:
+        new_row["Product Code"] = product_code
+      if "Product Description" in new_row.columns:
+        new_row["Product Description"] = description
+
       updated_df = pd.concat([df_current, new_row], ignore_index=True)
       save_data(updated_df, dept)
