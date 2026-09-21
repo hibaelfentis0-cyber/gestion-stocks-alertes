@@ -1,287 +1,279 @@
-import base64
-import json
-import pandas as pd
-import requests
 import streamlit as st
+from github import Github
+import pandas as pd
+from io import StringIO
 
-# --- CONFIGURATION DE LA PAGE ---
-st.set_page_config(
-    page_title="Supply Chain Control Center", page_icon="📊", layout="wide"
+# Page configuration
+st.set_page_config(page_title="Stock Management & Alerts", layout="wide")
+
+# GitHub Connection using Streamlit Secrets
+try:
+    g = Github(st.secrets["GITHUB_TOKEN"])
+    repo = g.get_repo("hibaelfentis0-cyber/gestion-stocks-alertes")
+except Exception as e:
+    st.error(f"GitHub Connection Error: {e}")
+
+st.title("Stock Management & Alerts System")
+
+# Navigation menu for the 4 departments
+department = st.sidebar.selectbox(
+    "Select Department", 
+    ["Production", "Procurement", "Warehouse", "Transport"]
 )
 
-# --- FONCTION DE CHARGEMENT PAR DÉFAUT AVEC LES BONS EN-TÊTES ---
+# Function to load data from GitHub
+@st.cache_data(ttl=60)
+def load_data():
+    try:
+        file_content = repo.get_contents("data/stock.csv")
+        decoded_content = file_content.decoded_content.decode("utf-8")
+        df = pd.read_csv(StringIO(decoded_content))
+        return df, file_content.sha
+    except Exception:
+        # Fallback dummy data if file doesn't exist yet
+        data = {
+            "Alert ID": ["ALT-001", "ALT-002"],
+            "Date": ["2026-06-01", "2026-06-02"],
+            "Product Code": ["PRD-A", "PRD-B"],
+            "Product Description": ["Beauty Blender Set", "Makeup Brush Pro"],
+            "Quantity Available": [10, 5],
+            "Quantity Required": [50, 30],
+            "Shortage Quantity": [40, 25],
+            "Production Line": ["Line 1", "Line 2"],
+            "Supplier": ["Anhui Beili", "Cosmetic Hub"],
+            "Purchase Order": ["PO-1001", "PO-1002"],
+            "Order Date": ["2026-06-03", "2026-06-04"],
+            "Expected Delivery": ["2026-06-15", "2026-06-20"],
+            "Purchasing Status": ["Pending", "Ordered"],
+            "Transport": ["Air", "Sea"],
+            "Warehouse Location": ["Zone A - Racks", "Zone B - Shelves"],
+            "Comments": ["Urgent restock", "Pending check"]
+        }
+        return pd.DataFrame(data), None
 
+df, file_sha = load_data()
 
-def get_default_dataframe(category_name):
-  if category_name == "Production":
-    return pd.DataFrame({
-        "Alert ID": ["PA-001", "PA-002"],
-        "Date": ["2026-09-18", "2026-09-18"],
-        "Time": ["08:30", "09:15"],
-        "Product Code": ["RM-1001", "RM-1002"],
-        "Product Description": [
-            "Aluminium Component A",
-            "Aluminium Component B",
-        ],
-        "Production Line": ["Line 1", "Line 2"],
-        "Current Stock": [420, 850],
-        "Minimum Stock": [100, 200],
-        "Required Quantity": [300, 250],
-        "Priority": ["High", "Medium"],
-        "Alert Status": ["Active", "Pending"],
-        "Action Required": ["Restock", "Monitor"],
-        "Responsible": ["Karim M.", "Sara B."],
-        "Comments": ["Urgent delivery", "Stable"],
-    })
-  elif category_name == "Logistics":
-    return pd.DataFrame({
-        "Alert ID": ["LG-001"],
-        "Date": ["2026-09-18"],
-        "Product Code": ["RM-1001"],
-        "Product Description": ["Aluminium Component A"],
-        "Quantity Available": [420],
-        "Quantity Required": [300],
-        "Shortage Quantity": [0],
-        "Warehouse Location": ["Zone A"],
-        "AvailablePallets": [10],
-        "Required Pallets": [5],
-        "Stock Status": ["Available"],
-        "Action Required": ["None"],
-        "Responsible Person": ["Karim M."],
-        "ProcessingStatus": ["Done"],
-        "Comments": ["OK"],
-    })
-  elif category_name == "Purchasing":
-    return pd.DataFrame({
-        "Alert ID": ["PU-001"],
-        "Date": ["2026-09-18"],
-        "Product Code": ["RM-1001"],
-        "Product Description": ["Aluminium Component A"],
-        "Required Quantity": [300],
-        "Current Stock": [420],
-        "Shortage Quantity": [0],
-        "Supplier": ["Supplier X"],
-        "Purchase Order": ["PO-9988"],
-        "Order Date": ["2026-09-10"],
-        "Expected Delivery": ["2026-09-25"],
-        "Lead Time (Days)": [15],
-        "Purchasing Status": ["Confirmed"],
-        "Priority": ["High"],
-        "Comments": ["On track"],
-    })
-  elif category_name == "Transport":
-    return pd.DataFrame({
-        "Alert ID": ["TR-001"],
-        "Product Code": ["RM-1001"],
-        "Product Description": ["Aluminium Component A"],
-        "Quantity to Deliver": [300],
-        "Number of Pallets": [5],
-        "Supplier": ["Supplier X"],
-        "Transport Company": ["LogiTrans"],
-        "Truck / Vehicle ID": ["TR-123-AB"],
-        "Loading Date": ["2026-09-24"],
-        "Planned Delivery Date": ["2026-09-25"],
-        "Actual Delivery Date": [""],
-        "Delivery Status": ["In Transit"],
-        "Delay (Days)": [0],
-        "Responsible Person": ["Ali T."],
-        "Comments": ["Scheduled"],
-    })
-  return pd.DataFrame()
+# Common automatic base columns for all departments
+base_columns = [
+    "Alert ID", 
+    "Date", 
+    "Product Code", 
+    "Product Description", 
+    "Quantity Available", 
+    "Quantity Required", 
+    "Shortage Quantity"
+]
 
+# Helper function to save changes to GitHub
+def save_to_github(dataframe, message_text):
+    updated_csv = dataframe.to_csv(index=False)
+    try:
+        repo.update_file(
+            path="data/stock.csv",
+            message=message_text,
+            content=updated_csv,
+            sha=file_sha
+        )
+        st.success("Changes successfully saved to GitHub!")
+        st.rerun()
+    except Exception as err:
+        st.error(f"Error saving to GitHub: {err}")
 
-# --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE VIA API REST GITHUB ---
-
-
-def load_data(category_name):
-  """Charge le fichier CSV depuis GitHub via l'API REST."""
-  try:
-    token = st.secrets["GITHUB_TOKEN"]
-    repo_name = st.secrets["REPO_NAME"]
-    url = f"https://api.github.com/repos/{repo_name}/contents/data/{category_name}.csv"
-    headers = {
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json",
-    }
-
-    response = requests.get(url, headers=headers)
-    if response.status_code == 200:
-      file_data = response.json()
-      decoded_content = base64.b64decode(file_data["content"]).decode("utf-8")
-      return pd.read_csv(pd.io.common.StringIO(decoded_content))
-    else:
-      return get_default_dataframe(category_name)
-  except Exception:
-    return get_default_dataframe(category_name)
-
-
-def save_data(df, category_name):
-  """Enregistre le DataFrame sur GitHub via l'API REST (création ou mise à jour)."""
-  try:
-    token = st.secrets["GITHUB_TOKEN"]
-    repo_name = st.secrets["REPO_NAME"]
-    url = f"https://api.github.com/repos/{repo_name}/contents/data/{category_name}.csv"
-    headers = {
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json",
-    }
-
-    csv_content = df.to_csv(index=False)
-    encoded_content = base64.b64encode(csv_content.encode("utf-8")).decode(
-        "utf-8"
+# --- 1. PRODUCTION DEPARTMENT ---
+if department == "Production":
+    st.header("Production Department")
+    st.markdown("Monitor production lines, material requirements, and operational alerts.")
+    
+    production_columns = base_columns + ["Production Line", "Comments"]
+    
+    for col in production_columns:
+        if col not in df.columns:
+            df[col] = ""
+            
+    df_production = df[production_columns]
+    
+    edited_production = st.data_editor(
+        df_production,
+        num_rows="dynamic",
+        key="production_editor"
     )
+    
+    if st.button("Save Production Changes"):
+        for col in production_columns:
+            df[col] = edited_production[col]
+        save_to_github(df, "Update production data from Streamlit")
 
-    get_response = requests.get(url, headers=headers)
-    sha = None
-    if get_response.status_code == 200:
-      sha = get_response.json().get("sha")
+    # Form to add a new item
+    with st.form("add_production_form"):
+        st.subheader("Add New Production Entry")
+        prod_code = st.text_input("Product Code", "PRD-NEW")
+        prod_desc = st.text_input("Product Description", "Description")
+        prod_line = st.text_input("Production Line", "Line 1")
+        submit_add = st.form_submit_button("Add and Save to GitHub")
+        
+        if submit_add:
+            df_current = df.copy()
+            new_row = df_current.iloc[[0]].copy() if len(df_current) > 0 else pd.DataFrame([{col: "" for col in production_columns}])
+            new_row["Alert ID"] = f"ALT-{len(df_current)+1:03d}"
+            new_row["Product Code"] = prod_code
+            new_row["Product Description"] = prod_desc
+            new_row["Production Line"] = prod_line
+            updated_df = pd.concat([df_current, new_row], ignore_index=True)
+            save_to_github(updated_df, "Add new row in Production via form")
 
-    data = {
-        "message": f"Mise à jour automatique des données {category_name} via Streamlit",
-        "content": encoded_content,
-        "branch": "main",
-    }
-    if sha:
-      data["sha"] = sha
-
-    put_response = requests.put(url, headers=headers, data=json.dumps(data))
-
-    if put_response.status_code in [200, 201]:
-      st.success(
-          f"Modifications enregistrées avec succès pour {category_name} sur"
-          " GitHub !"
-      )
-    else:
-      st.error(
-          f"Erreur GitHub ({put_response.status_code}) :"
-          f" {put_response.json().get('message', 'Erreur inconnue')}"
-      )
-  except Exception as e:
-    st.error(f"Erreur technique lors de la sauvegarde : {e}")
-
-
-# --- MENU LATÉRAL ---
-st.sidebar.title("Supply Chain Menu")
-menu = st.sidebar.radio(
-    "Navigate to",
-    [
-        "Global Dashboard",
-        "Production",
-        "Logistics",
-        "Purchasing",
-        "Transport",
-        "Add New Alert",
-    ],
-)
-
-# --- 1. GLOBAL DASHBOARD ---
-if menu == "Global Dashboard":
-  st.title("📊 Supply Chain - Global Dashboard")
-  st.markdown("Overview and Key Performance Indicators (KPIs) across all departments.")
-
-  col1, col2, col3, col4 = st.columns(4)
-  with col1:
-    st.metric(label="Production Alerts", value="4", delta="-2 vs yesterday")
-  with col2:
-    st.metric(label="Logistics Items", value="4", delta="Stable")
-  with col3:
-    st.metric(label="Purchasing Orders", value="4", delta="+3 pending")
-  with col4:
-    st.metric(label="Transport Deliveries", value="4", delta="1 delayed")
-
-  st.markdown("---")
-  st.subheader("📈 Alerts Distribution by Department")
-
-  chart_data = pd.DataFrame(
-      {
-          "Department": [
-              "Production",
-              "Logistics",
-              "Purchasing",
-              "Transport",
-          ],
-          "Alerts": [4, 4, 4, 4],
-      }
-  )
-  st.bar_chart(chart_data.set_index("Department"))
-
-# --- 2. MODULE PRODUCTION ---
-elif menu == "Production":
-  st.title("🏭 Production Processing")
-  st.markdown("Manage manufacturing lines, outputs, and production status.")
-
-  df_prod = load_data("Production")
-  edited_prod = st.data_editor(
-      df_prod, num_rows="dynamic", key="editor_production"
-  )
-
-  if st.button("Enregistrer les modifications Production"):
-    save_data(edited_prod, "Production")
-
-# --- 3. MODULE LOGISTICS ---
-elif menu == "Logistics":
-  st.title("📦 Logistics & Warehouse Processing")
-  st.markdown("Warehouse stock levels, bin locations, and pallet management.")
-
-  df_log = load_data("Logistics")
-  edited_log = st.data_editor(df_log, num_rows="dynamic", key="editor_logistics")
-
-  if st.button("Enregistrer les modifications Logistics"):
-    save_data(edited_log, "Logistics")
-
-# --- 4. MODULE PURCHASING ---
-elif menu == "Purchasing":
-  st.title("🛒 Purchasing Management")
-  st.markdown("Track suppliers, purchase orders, and procurement status.")
-
-  df_pur = load_data("Purchasing")
-  edited_pur = st.data_editor(
-      df_pur, num_rows="dynamic", key="editor_purchasing"
-  )
-
-  if st.button("Enregistrer les modifications Purchasing"):
-    save_data(edited_pur, "Purchasing")
-
-# --- 5. MODULE TRANSPORT ---
-elif menu == "Transport":
-  st.title("🚚 Transport & Deliveries")
-  st.markdown("Monitor shipping routes, carriers, and delivery statuses.")
-
-  df_tra = load_data("Transport")
-  edited_tra = st.data_editor(
-      df_tra, num_rows="dynamic", key="editor_transport"
-  )
-
-  if st.button("Enregistrer les modifications Transport"):
-    save_data(edited_tra, "Transport")
-
-# --- 6. ADD NEW ALERT ---
-elif menu == "Add New Alert":
-  st.title("➕ Add New Alert")
-  st.markdown("Create a new supply chain alert or record.")
-
-  with st.form("new_alert_form"):
-    dept = st.selectbox(
-        "Department", ["Production", "Logistics", "Purchasing", "Transport"]
+# --- 2. PROCUREMENT DEPARTMENT ---
+elif department == "Procurement":
+    st.header("Procurement Department")
+    st.markdown("Manage suppliers, purchase orders, expected deliveries (ETA), and purchasing statuses.")
+    
+    procurement_columns = base_columns + [
+        "Supplier", 
+        "Purchase Order", 
+        "Order Date", 
+        "Expected Delivery", 
+        "Purchasing Status", 
+        "Comments"
+    ]
+    
+    for col in procurement_columns:
+        if col not in df.columns:
+            df[col] = ""
+            
+    df_procurement = df[procurement_columns]
+    
+    edited_procurement = st.data_editor(
+        df_procurement,
+        column_config={
+            "Purchasing Status": st.column_config.SelectboxColumn(
+                "Purchasing Status",
+                options=["Pending", "Ordered", "Shipped", "Delivered", "Cancelled"],
+                required=True
+            ),
+            "Expected Delivery": st.column_config.DateColumn(
+                "Expected Delivery (ETA)",
+                format="YYYY-MM-DD",
+                required=True
+            ),
+            "Order Date": st.column_config.DateColumn(
+                "Order Date",
+                format="YYYY-MM-DD",
+                required=False
+            )
+        },
+        num_rows="dynamic",
+        key="procurement_editor"
     )
-    product_code = st.text_input("Product Code")
-    description = st.text_input("Product Description")
-    qty_avail = st.number_input("Quantity / Value", min_value=0, value=100)
+    
+    if st.button("Save Procurement Changes"):
+        for col in procurement_columns:
+            df[col] = edited_procurement[col]
+        save_to_github(df, "Update procurement data from Streamlit")
 
-    submit_button = st.form_submit_button(
-        "Ajouter et enregistrer sur GitHub"
+    # Form to add a new item
+    with st.form("add_procurement_form"):
+        st.subheader("Add New Procurement Entry")
+        prod_code = st.text_input("Product Code", "PRD-NEW")
+        prod_desc = st.text_input("Product Description", "Description")
+        supplier = st.text_input("Supplier", "Supplier Name")
+        submit_add = st.form_submit_button("Add and Save to GitHub")
+        
+        if submit_add:
+            df_current = df.copy()
+            new_row = df_current.iloc[[0]].copy() if len(df_current) > 0 else pd.DataFrame([{col: "" for col in procurement_columns}])
+            new_row["Alert ID"] = f"ALT-{len(df_current)+1:03d}"
+            new_row["Product Code"] = prod_code
+            new_row["Product Description"] = prod_desc
+            new_row["Supplier"] = supplier
+            updated_df = pd.concat([df_current, new_row], ignore_index=True)
+            save_to_github(updated_df, "Add new row in Procurement via form")
+
+# --- 3. WAREHOUSE DEPARTMENT ---
+elif department == "Warehouse":
+    st.header("Warehouse Department")
+    st.markdown("Manage warehouse locations, inventory availability, and stock checks.")
+    
+    warehouse_columns = base_columns + ["Warehouse Location", "Comments"]
+    
+    for col in warehouse_columns:
+        if col not in df.columns:
+            df[col] = ""
+            
+    df_warehouse = df[warehouse_columns]
+    
+    edited_warehouse = st.data_editor(
+        df_warehouse,
+        num_rows="dynamic",
+        key="warehouse_editor"
     )
+    
+    if st.button("Save Warehouse Changes"):
+        for col in warehouse_columns:
+            df[col] = edited_warehouse[col]
+        save_to_github(df, "Update warehouse data from Streamlit")
 
-    if submit_button:
-      df_current = load_data(dept)
-      # Ajout d'une ligne générique respectant la structure du département choisi
-      new_row = df_current.iloc[[0]].copy()
-      if "Alert ID" in new_row.columns:
-        new_row["Alert ID"] = f"AL-{len(df_current)+1:03d}"
-      if "Product Code" in new_row.columns:
-        new_row["Product Code"] = product_code
-      if "Product Description" in new_row.columns:
-        new_row["Product Description"] = description
+    # Form to add a new item
+    with st.form("add_warehouse_form"):
+        st.subheader("Add New Warehouse Entry")
+        prod_code = st.text_input("Product Code", "PRD-NEW")
+        prod_desc = st.text_input("Product Description", "Description")
+        location = st.text_input("Warehouse Location", "Zone A")
+        submit_add = st.form_submit_button("Add and Save to GitHub")
+        
+        if submit_add:
+            df_current = df.copy()
+            new_row = df_current.iloc[[0]].copy() if len(df_current) > 0 else pd.DataFrame([{col: "" for col in warehouse_columns}])
+            new_row["Alert ID"] = f"ALT-{len(df_current)+1:03d}"
+            new_row["Product Code"] = prod_code
+            new_row["Product Description"] = prod_desc
+            new_row["Warehouse Location"] = location
+            updated_df = pd.concat([df_current, new_row], ignore_index=True)
+            save_to_github(updated_df, "Add new row in Warehouse via form")
 
-      updated_df = pd.concat([df_current, new_row], ignore_index=True)
-      save_data(updated_df, dept)
+# --- 4. TRANSPORT DEPARTMENT ---
+elif department == "Transport":
+    st.header("Transport Department")
+    st.markdown("Track shipping methods, carriers, and transit details.")
+    
+    transport_columns = base_columns + ["Transport", "Comments"]
+    
+    for col in transport_columns:
+        if col not in df.columns:
+            df[col] = ""
+            
+    df_transport = df[transport_columns]
+    
+    edited_transport = st.data_editor(
+        df_transport,
+        column_config={
+            "Transport": st.column_config.SelectboxColumn(
+                "Transport Method",
+                options=["Air", "Sea", "Road", "Express"],
+                required=True
+            )
+        },
+        num_rows="dynamic",
+        key="transport_editor"
+    )
+    
+    if st.button("Save Transport Changes"):
+        for col in transport_columns:
+            df[col] = edited_transport[col]
+        save_to_github(df, "Update transport data from Streamlit")
+
+    # Form to add a new item
+    with st.form("add_transport_form"):
+        st.subheader("Add New Transport Entry")
+        prod_code = st.text_input("Product Code", "PRD-NEW")
+        prod_desc = st.text_input("Product Description", "Description")
+        transport_method = st.selectbox("Transport Method", ["Air", "Sea", "Road", "Express"])
+        submit_add = st.form_submit_button("Add and Save to GitHub")
+        
+        if submit_add:
+            df_current = df.copy()
+            new_row = df_current.iloc[[0]].copy() if len(df_current) > 0 else pd.DataFrame([{col: "" for col in transport_columns}])
+            new_row["Alert ID"] = f"ALT-{len(df_current)+1:03d}"
+            new_row["Product Code"] = prod_code
+            new_row["Product Description"] = prod_desc
+            new_row["Transport"] = transport_method
+            updated_df = pd.concat([df_current, new_row], ignore_index=True)
+            save_to_github(updated_df, "Add new row in Transport via form")
