@@ -7,7 +7,7 @@ from datetime import datetime
 # Page configuration
 st.set_page_config(page_title="Motherson PKC - Stock & Alert System", page_icon="🏢", layout="wide")
 
-# Custom UI styling for Motherson PKC professional look & custom alert color badges
+# Custom UI styling
 st.markdown("""
     <style>
     .main {
@@ -52,27 +52,40 @@ file_mapping = {
     "🚚 Transport": "04_Transport_Delivery_Stock_Alert.xlsx"
 }
 
-# Function to load data from a specific Excel file on GitHub
-def load_excel_data(filename):
+# Common base columns for all departments
+base_columns = [
+    "Alert ID", 
+    "Date", 
+    "Product Code", 
+    "Product Description", 
+    "Quantity Available", 
+    "Quantity Required", 
+    "Shortage Quantity",
+    "Last Updated"
+]
+
+# Function to load data (Returns an empty DataFrame if file doesn't exist yet)
+def load_excel_data(filename, dept_name):
     try:
         file_content = repo.get_contents(filename)
         decoded_content = file_content.decoded_content
         df = pd.read_excel(BytesIO(decoded_content))
         return df, file_content.sha
     except Exception:
-        # Fallback dummy data
-        data = {
-            "Alert ID": ["ALT-001", "ALT-002"],
-            "Date": ["2026-06-01", "2026-06-02"],
-            "Product Code": ["PRD-01", "PRD-02"],
-            "Product Description": ["Sample Item A", "Sample Item B"],
-            "Quantity Available": [120, 450],
-            "Quantity Required": [300, 800],
-            "Shortage Quantity": [180, 350],
-            "Last Updated": ["2026-09-21 10:00", "2026-09-21 10:00"],
-            "Comments": ["Urgent check", "Pending shipment"]
-        }
-        return pd.DataFrame(data), None
+        # Define specific columns per department for empty setup
+        if "Production" in dept_name:
+            cols = base_columns + ["Production Line", "Comments"]
+        elif "Warehouse" in dept_name:
+            cols = base_columns + ["Warehouse Location", "Comments"]
+        elif "Procurement" in dept_name:
+            cols = base_columns + ["Supplier", "Purchase Order", "Order Date", "ETA", "Purchasing Status", "Comments"]
+        elif "Transport" in dept_name:
+            cols = base_columns + ["Transport", "Truck Number", "Comments"]
+        else:
+            cols = base_columns + ["Comments"]
+            
+        empty_df = pd.DataFrame(columns=cols)
+        return empty_df, None
 
 # Helper function to save changes to GitHub as Excel
 def save_to_github(dataframe, filename, message_text, file_sha):
@@ -100,33 +113,21 @@ def save_to_github(dataframe, filename, message_text, file_sha):
     except Exception as err:
         st.error(f"Error saving to GitHub: {err}")
 
-# Common automatic base columns for all departments
-base_columns = [
-    "Alert ID", 
-    "Date", 
-    "Product Code", 
-    "Product Description", 
-    "Quantity Available", 
-    "Quantity Required", 
-    "Shortage Quantity",
-    "Last Updated"
-]
-
-# --- 1. GENERAL DASHBOARD WITH ADVANCED KPIS, SEARCH & EXPORT ---
+# --- 1. GENERAL DASHBOARD ---
 if menu == "📈 General Dashboard":
     st.header("📈 General Dashboard & Advanced Analytics")
     st.markdown("Overview of key inventory metrics, service level rates, shortages, and global tracking.")
     
     dfs = []
     for dept_name, fname in file_mapping.items():
-        d_df, _ = load_excel_data(fname)
+        d_df, _ = load_excel_data(fname, dept_name)
         d_df["Department"] = dept_name
         dfs.append(d_df)
     
     if dfs:
         global_df = pd.concat(dfs, ignore_index=True)
         
-        # --- GLOBAL SEARCH BAR FEATURE ---
+        # Global Search Bar
         st.sidebar.markdown("---")
         st.sidebar.subheader("🔍 Global Search")
         search_query = st.sidebar.text_input("Search Product Code / Desc", "").strip().upper()
@@ -140,14 +141,13 @@ if menu == "📈 General Dashboard":
             st.dataframe(filtered_global, use_container_width=True)
             st.markdown("---")
 
-        # --- ADVANCED KPIS & SERVICE LEVEL (TAUX DE SERVICE) ---
+        # Advanced KPIs & Service Level
         tot_avail = global_df["Quantity Available"].sum() if "Quantity Available" in global_df.columns else 0
         tot_req = global_df["Quantity Required"].sum() if "Quantity Required" in global_df.columns else 0
         tot_short = global_df["Shortage Quantity"].sum() if "Shortage Quantity" in global_df.columns else 0
         
-        # Taux de service / Couverture calculation (%)
         service_rate = (tot_avail / tot_req * 100) if tot_req > 0 else 100
-        service_rate = min(service_rate, 100.0) # Cap at 100%
+        service_rate = min(service_rate, 100.0)
 
         col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
@@ -163,7 +163,7 @@ if menu == "📈 General Dashboard":
             
         st.markdown("---")
         
-        # --- DIRECT EXCEL EXPORT BUTTON FOR MEETINGS ---
+        # Export Excel Button
         st.subheader("📥 Export & Reports for Meetings")
         output_excel = BytesIO()
         with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
@@ -178,28 +178,26 @@ if menu == "📈 General Dashboard":
         )
         
         st.markdown("---")
-        st.warning("⚠️ **System Notice:** High shortage levels detected in specific production lines. Please review Procurement and Transport schedules.")
         
         # Visual Charts Section
-        st.subheader("📊 Visual Analytics & Stock Status")
-        col_chart1, col_chart2 = st.columns(2)
-        
-        with col_chart1:
-            st.markdown("**Quantities by Department (Available vs Required)**")
-            if "Department" in global_df.columns and "Quantity Available" in global_df.columns:
+        if len(global_df) > 0 and global_df["Quantity Available"].sum() > 0:
+            st.subheader("📊 Visual Analytics & Stock Status")
+            col_chart1, col_chart2 = st.columns(2)
+            with col_chart1:
+                st.markdown("**Quantities by Department (Available vs Required)**")
                 dept_summary = global_df.groupby("Department")[["Quantity Available", "Quantity Required"]].sum()
                 st.bar_chart(dept_summary)
-                
-        with col_chart2:
-            st.markdown("**Shortage Quantity per Product**")
-            if "Product Code" in global_df.columns and "Shortage Quantity" in global_df.columns:
+            with col_chart2:
+                st.markdown("**Shortage Quantity per Product**")
                 shortage_summary = global_df.groupby("Product Code")["Shortage Quantity"].sum()
                 st.bar_chart(shortage_summary)
+        else:
+            st.info("ℹ️ Aucune donnée enregistrée pour le moment. Utilisez les onglets de département pour ajouter vos premières lignes.")
 
-# --- 2. SPECIFIC DEPARTMENTS WITH CRITICALITY COLOR HIGHLIGHTS ---
+# --- 2. SPECIFIC DEPARTMENTS ---
 else:
     current_file = file_mapping[menu]
-    df, file_sha = load_excel_data(current_file)
+    df, file_sha = load_excel_data(current_file, menu)
     
     st.header(f"Motherson PKC - {menu}")
     
@@ -216,7 +214,6 @@ else:
         st.markdown("Track shipments, carriers, Truck Number, and transport tracking logistics.")
         specific_cols = base_columns + ["Transport", "Truck Number", "Comments"]
     
-    # Force creation of missing columns in the dataframe
     for col in specific_cols:
         if col not in df.columns:
             df[col] = ""
@@ -234,7 +231,6 @@ else:
         df_view["Transport"] = df_view["Transport"].apply(lambda x: x if x in valid_transports else "Road")
         column_configs["Transport"] = st.column_config.SelectboxColumn("Transport Method", options=valid_transports, required=True)
 
-    # --- COLOR HIGHLIGHT FUNCTION (CRITICALITY STYLING) ---
     def color_criticality(row):
         try:
             shortage = float(row["Shortage Quantity"])
@@ -242,18 +238,14 @@ else:
             shortage = 0
         
         if shortage > 500:
-            return ['background-color: #fee2e2; color: #991b1b'] * len(row) # Rouge critique
+            return ['background-color: #fee2e2; color: #991b1b'] * len(row)
         elif shortage > 0:
-            return ['background-color: #fef3c7; color: #92400e'] * len(row) # Orange (alerte modérée)
+            return ['background-color: #fef3c7; color: #92400e'] * len(row)
         else:
-            return ['background-color: #ecfdf5; color: #065f46'] * len(row) # Vert (ok)
+            return ['background-color: #ecfdf5; color: #065f46'] * len(row)
 
-    # Display styled data editor table
     st.markdown("### 📋 Données du département (Coloré selon la criticité du manque)")
     st.caption("🟢 Vert = OK / 🟠 Orange = Manque modéré / 🔴 Rouge = Manque critique (> 500 unités)")
-    
-    # Apply pandas styling for color visualization
-    styled_df = df_view.style.apply(color_criticality, axis=1)
     
     edited_df = st.data_editor(
         df_view,
@@ -262,12 +254,11 @@ else:
         key=f"{menu}_editor"
     )
     
-    col_btn1, col_btn2 = st.columns([1, 5])
+    col_btn1, _ = st.columns([1, 5])
     with col_btn1:
         save_btn = st.button("💾 Save Changes")
         
     if save_btn:
-        # Update timestamp automatically on save
         current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         edited_df["Last Updated"] = current_time_str
         save_to_github(edited_df, current_file, f"Motherson PKC Update: {menu}", file_sha)
@@ -276,22 +267,22 @@ else:
         st.subheader(f"➕ Add New Entry to {menu}")
         f_col1, f_col2 = st.columns(2)
         with f_col1:
-            prod_code = st.text_input("Product Code", "PRD-NEW-01")
+            prod_code = st.text_input("Product Code", "")
         with f_col2:
-            prod_desc = st.text_input("Product Description", "Item Description")
+            prod_desc = st.text_input("Product Description", "")
         
         extra_val = ""
         extra_val_transport = ""
         
         if "Production" in menu:
-            extra_val = st.text_input("Production Line", "Assembly Line A")
+            extra_val = st.text_input("Production Line", "")
         elif "Warehouse" in menu:
-            extra_val = st.text_input("Warehouse Location", "Zone C - Racks")
+            extra_val = st.text_input("Warehouse Location", "")
         elif "Procurement" in menu:
-            extra_val = st.text_input("Supplier", "Supplier Name")
+            extra_val = st.text_input("Supplier", "")
         elif "Transport" in menu:
             extra_val = st.selectbox("Transport Method", ["Air", "Sea", "Road", "Express"])
-            extra_val_transport = st.text_input("Truck Number", "TRK-001")
+            extra_val_transport = st.text_input("Truck Number", "")
             
         submit_add = st.form_submit_button("🚀 Add and Sync to GitHub")
         
@@ -302,6 +293,9 @@ else:
             new_row["Date"] = datetime.now().strftime("%Y-%m-%d")
             new_row["Product Code"] = prod_code
             new_row["Product Description"] = prod_desc
+            new_row["Quantity Available"] = 0
+            new_row["Quantity Required"] = 0
+            new_row["Shortage Quantity"] = 0
             new_row["Last Updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
             
             if "Production" in menu:
@@ -310,6 +304,10 @@ else:
                 new_row["Warehouse Location"] = extra_val
             elif "Procurement" in menu:
                 new_row["Supplier"] = extra_val
+                new_row["Purchase Order"] = ""
+                new_row["Order Date"] = ""
+                new_row["ETA"] = ""
+                new_row["Purchasing Status"] = "Pending"
             elif "Transport" in menu:
                 new_row["Transport"] = extra_val
                 new_row["Truck Number"] = extra_val_transport
