@@ -175,9 +175,10 @@ else:
         st.markdown("Manage suppliers, purchase orders, **ETA (Estimated Time of Arrival)**, and tracking statuses.")
         specific_cols = base_columns + ["Supplier", "Purchase Order", "Order Date", "ETA", "Purchasing Status", "Comments"]
     elif "Transport" in menu:
-        st.markdown("Track shipments, carriers, and delivery transit logistics.")
-        specific_cols = base_columns + ["Transport", "Comments"]
+        st.markdown("Track shipments, carriers, **Plant Number**, and delivery transit logistics.")
+        specific_cols = base_columns + ["Transport", "Plant Number", "Comments"]
     
+    # Force creation of missing columns in the dataframe so they immediately display on the UI
     for col in specific_cols:
         if col not in df.columns:
             df[col] = ""
@@ -218,6 +219,8 @@ else:
             prod_desc = st.text_input("Product Description", "Item Description")
         
         extra_val = ""
+        extra_val_transport = ""
+        
         if "Production" in menu:
             extra_val = st.text_input("Production Line", "Assembly Line A")
         elif "Warehouse" in menu:
@@ -226,6 +229,7 @@ else:
             extra_val = st.text_input("Supplier", "Supplier Name")
         elif "Transport" in menu:
             extra_val = st.selectbox("Transport Method", ["Air", "Sea", "Road", "Express"])
+            extra_val_transport = st.text_input("Plant Number", "PLANT-01")
             
         submit_add = st.form_submit_button("🚀 Add and Sync to GitHub")
         
@@ -244,6 +248,7 @@ else:
                 new_row["Supplier"] = extra_val
             elif "Transport" in menu:
                 new_row["Transport"] = extra_val
+                new_row["Plant Number"] = extra_val_transport
                 
             updated_df = pd.concat([df_current, new_row], ignore_index=True)
             save_to_github(updated_df, current_file, f"Motherson PKC Add row in {menu}", file_sha)
