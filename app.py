@@ -41,12 +41,12 @@ def load_excel_data(filename):
         data = {
             "Alert ID": ["ALT-001", "ALT-002"],
             "Date": ["2026-06-01", "2026-06-02"],
-            "Product Code": ["HARN-FRONT-01", "CONN-32PIN-02"],
-            "Product Description": ["Main Wire Harness - Dashboard", "Connector 32-pin Sealed"],
+            "Product Code": ["PRD-01", "PRD-02"],
+            "Product Description": ["Sample Item A", "Sample Item B"],
             "Quantity Available": [120, 450],
             "Quantity Required": [300, 800],
             "Shortage Quantity": [180, 350],
-            "Comments": ["Urgent crimping batch", "Pending supplier shipment"]
+            "Comments": ["Urgent check", "Pending shipment"]
         }
         return pd.DataFrame(data), None
 
@@ -145,16 +145,16 @@ else:
     st.header(menu)
     
     if "Production" in menu:
-        st.markdown("Monitor assembly lines, cutting/crimping status, and operational alerts.")
+        st.markdown("Monitor assembly lines, operational status, and alerts.")
         specific_cols = base_columns + ["Production Line", "Comments"]
     elif "Warehouse" in menu:
-        st.markdown("Manage raw material locations and stock checks.")
+        st.markdown("Manage material locations and stock checks.")
         specific_cols = base_columns + ["Warehouse Location", "Comments"]
     elif "Procurement" in menu:
-        st.markdown("Manage component suppliers, purchase orders, expected deliveries (ETA), and statuses.")
+        st.markdown("Manage suppliers, purchase orders, expected deliveries (ETA), and statuses.")
         specific_cols = base_columns + ["Supplier", "Purchase Order", "Order Date", "Expected Delivery", "Purchasing Status", "Comments"]
     elif "Transport" in menu:
-        st.markdown("Track shipments, carriers, and transit details to plants.")
+        st.markdown("Track shipments, carriers, and transit details.")
         specific_cols = base_columns + ["Transport", "Comments"]
     
     for col in specific_cols:
@@ -179,9 +179,7 @@ else:
     )
     
     if st.button(f"Save {menu} Changes"):
-        for col in specific_cols:
-            df[col] = edited_df[col]
-        save_to_github(df, current_file, f"Update {menu} data from Streamlit", file_sha)
+        save_to_github(edited_df, current_file, f"Update/Delete rows in {menu} from Streamlit", file_sha)
 
     with st.form(f"add_form_{menu}"):
         st.subheader(f"Add New Entry to {menu}")
@@ -201,7 +199,7 @@ else:
         submit_add = st.form_submit_button("Add and Save to GitHub")
         
         if submit_add:
-            df_current = df.copy()
+            df_current = edited_df.copy()
             new_row = df_current.iloc[[0]].copy() if len(df_current) > 0 else pd.DataFrame([{col: "" for col in specific_cols}])
             new_row["Alert ID"] = f"ALT-{len(df_current)+1:03d}"
             new_row["Product Code"] = prod_code
