@@ -87,10 +87,10 @@ base_columns = [
     "Shortage Quantity"
 ]
 
-# --- 1. GENERAL DASHBOARD WITH CHARTS ---
+# --- 1. GENERAL DASHBOARD WITH CHARTS (Combined Data View removed) ---
 if menu == "📈 General Dashboard":
     st.header("📈 General Stock Dashboard")
-    st.markdown("Overview of key metrics, visual analytics, and inventory status across all departments.")
+    st.markdown("Overview of key metrics and visual analytics across all departments.")
     
     dfs = []
     for dept_name, fname in file_mapping.items():
@@ -133,10 +133,6 @@ if menu == "📈 General Dashboard":
                 shortage_summary = global_df.groupby("Product Code")["Shortage Quantity"].sum()
                 st.bar_chart(shortage_summary)
 
-        st.markdown("---")
-        st.subheader("Combined Data View")
-        st.dataframe(global_df, use_container_width=True)
-
 # --- 2. SPECIFIC DEPARTMENTS ---
 else:
     current_file = file_mapping[menu]
@@ -168,8 +164,11 @@ else:
         valid_statuses = ["Pending", "Ordered", "Shipped", "Delivered", "Cancelled"]
         df_view["Purchasing Status"] = df_view["Purchasing Status"].apply(lambda x: x if x in valid_statuses else "Pending")
         column_configs["Purchasing Status"] = st.column_config.SelectboxColumn("Purchasing Status", options=valid_statuses, required=True)
+        
     if "Transport" in specific_cols:
-        column_configs["Transport"] = st.column_config.SelectboxColumn("Transport Method", options=["Air", "Sea", "Road", "Express"], required=True)
+        valid_transports = ["Air", "Sea", "Road", "Express"]
+        df_view["Transport"] = df_view["Transport"].apply(lambda x: x if x in valid_transports else "Road")
+        column_configs["Transport"] = st.column_config.SelectboxColumn("Transport Method", options=valid_transports, required=True)
 
     edited_df = st.data_editor(
         df_view,
