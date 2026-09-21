@@ -64,7 +64,7 @@ base_columns = [
     "Last Updated"
 ]
 
-# Function to load data (Returns an empty DataFrame if file doesn't exist yet)
+# Function to load data
 def load_excel_data(filename, dept_name):
     try:
         file_content = repo.get_contents(filename)
@@ -72,7 +72,6 @@ def load_excel_data(filename, dept_name):
         df = pd.read_excel(BytesIO(decoded_content))
         return df, file_content.sha
     except Exception:
-        # Define specific columns per department for empty setup
         if "Production" in dept_name:
             cols = base_columns + ["Production Line", "Comments"]
         elif "Warehouse" in dept_name:
@@ -108,10 +107,78 @@ def save_to_github(dataframe, filename, message_text, file_sha):
                 message=message_text,
                 content=updated_excel
             )
-        st.success("✅ Changes successfully synchronized with GitHub database!")
-        st.rerun()
     except Exception as err:
         st.error(f"Error saving to GitHub: {err}")
+
+# --- AUTOMATIC SYNC FUNCTION (Production is Master) ---
+def sync_department_with_production():
+    """Reads Production data and synchronizes core columns (Alert ID, Date, Product Code, Product Description, Quantities) to other departments while preserving department-specific inputs."""
+    prod_file = file_mapping["🏭 Production"]
+    prod_df, _ = load_excel_data(prod_file, "🏭 Production")
+    
+    if len(prod_df) == 0:
+        return
+        
+    for dept_name, filename in file_mapping.items():
+        if dept_name == "🏭 Production":
+            continue
+            
+        dept_df, dept_sha = load_excel_data(filename, dept_name)
+        
+        # Keep track of specific existing values if product already exists
+        specific_data_map = {}
+        if len(dept_df) > 0 and "Product Code" in dept_df.columns:
+            for _, row in dept_df.iterrows():
+                p_code = row.get("Product Code")
+                if pd.notna(p_code):
+                    specific_data_map[p_code] = row.to_dict()
+        
+        # Build new synchronized dataframe based on Production rows
+        new_rows = []
+        for _, prod_row in prod_df.iterrows():
+            p_code = prod_row.get("Product Code")
+            
+            # Start with base info from Production
+            row_data = {
+                "Alert ID": prod_row.get("Alert ID", ""),
+                "Date": prod_row.get("Date", ""),
+                "Product Code": p_code,
+                "Product Description": prod_row.get("Product Description", ""),
+                "Quantity Available": prod_row.get("Quantity Available", 0),
+                "Quantity Required": prod_row.get("Quantity Required", 0),
+                "Shortage Quantity": prod_row.get("Shortage Quantity", 0),
+                "Last Updated": prod_row.get("Last Updated", "")
+            }
+            
+            # Restore department-specific columns if product was already there
+            if p_code in specific_data_map:
+                old_row = specific_data_map[p_code]
+                for col in dept_df.columns:
+                    if col not in row_data:
+                        row_data[col] = old_row.get(col, "")
+            else:
+                # Default empty values for new department-specific columns
+                if "Production" in dept_name:
+                    pass
+                elif "Warehouse" in dept_name:
+                    row_data["Warehouse Location"] = ""
+                    row_data["Comments"] = ""
+                elif "Procurement" in dept_name:
+                    row_data["Supplier"] = ""
+                    row_data["Purchase Order"] = ""
+                    row_data["Order Date"] = ""
+                    row_data["ETA"] = ""
+                    row_data["Purchasing Status"] = "Pending"
+                    row_data["Comments"] = ""
+                elif "Transport" in dept_name:
+                    row_data["Transport"] = "Road"
+                    row_data["Truck Number"] = ""
+                    row_data["Comments"] = ""
+            
+            new_rows.append(row_data)
+            
+        updated_dept_df = pd.DataFrame(new_rows)
+        save_to_github(updated_dept_df, filename, f"Auto-sync from Production to {dept_name}", dept_sha)
 
 # --- 1. GENERAL DASHBOARD ---
 if menu == "📈 General Dashboard":
@@ -202,16 +269,16 @@ else:
     st.header(f"Motherson PKC - {menu}")
     
     if "Production" in menu:
-        st.markdown("Monitor assembly lines, operational status, and production stock alerts.")
+        st.markdown("Monitor assembly lines, operational status, and production stock alerts. *(Master Source for all departments)*")
         specific_cols = base_columns + ["Production Line", "Comments"]
     elif "Warehouse" in menu:
-        st.markdown("Manage material locations, warehouse zones, and warehouse stock checks.")
+        st.markdown("Manage material locations, warehouse zones, and warehouse stock checks. *(Automatically synced with Production)*")
         specific_cols = base_columns + ["Warehouse Location", "Comments"]
     elif "Procurement" in menu:
-        st.markdown("Manage suppliers, purchase orders, tracking, ETAs, and purchasing statuses.")
+        st.markdown("Manage suppliers, purchase orders, tracking, ETAs, and purchasing statuses. *(Automatically synced with Production)*")
         specific_cols = base_columns + ["Supplier", "Purchase Order", "Order Date", "ETA", "Purchasing Status", "Comments"]
     elif "Transport" in menu:
-        st.markdown("Track shipments, carriers, truck numbers, and transport logistics.")
+        st.markdown("Track shipments, carriers, truck numbers, and transport logistics. *(Automatically synced with Production)*")
         specific_cols = base_columns + ["Transport", "Truck Number", "Comments"]
     
     for col in specific_cols:
@@ -248,7 +315,16 @@ else:
         current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         edited_df["Last Updated"] = current_time_str
         save_to_github(edited_df, current_file, f"Motherson PKC Update: {menu}", file_sha)
+        
+        # If the user updated Production, automatically sync other departments!
+        if menu == "🏭 Production":
+            with st.spinner("Synchronizing core data to Warehouse, Procurement, and Transport..."):
+                sync_department_with_production()
+                
+        st.success("✅ Changes successfully saved and synchronized!")
+        st.rerun()
 
+    # Add form (Mainly for Production as Master, but available everywhere)
     with st.form(f"add_form_{menu}"):
         st.subheader(f"➕ Add New Entry to {menu}")
         f_col1, f_col2 = st.columns(2)
@@ -300,3 +376,11 @@ else:
                 
             updated_df = pd.concat([df_current, new_row], ignore_index=True)
             save_to_github(updated_df, current_file, f"Motherson PKC Add row in {menu}", file_sha)
+            
+            # Auto-sync if added from Production
+            if menu == "🏭 Production":
+                with st.spinner("Synchronizing new entry across all departments..."):
+                    sync_department_with_production()
+                    
+            st.success("✅ Entry added and synchronized successfully!")
+            st.rerun()
