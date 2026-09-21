@@ -4,22 +4,23 @@ import pandas as pd
 from io import BytesIO
 
 # Page configuration
-st.set_page_config(page_title="AI Stock & Intelligence Alerts", page_icon="🤖", layout="wide")
+st.set_page_config(page_title="Motherson PKC - Stock & Alert System", page_icon="🏢", layout="wide")
 
-# Custom UI styling for an AI-powered look
+# Custom UI styling for Motherson PKC professional look
 st.markdown("""
     <style>
     .main {
-        background-color: #0e1117;
+        background-color: #f8f9fa;
     }
     .stMetric {
-        background-color: #1a1c24;
+        background-color: #ffffff;
         padding: 15px;
-        border-radius: 10px;
-        border: 1px solid #30363d;
+        border-radius: 8px;
+        border: 1px solid #d1d5db;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
     h1, h2, h3 {
-        color: #58a6ff;
+        color: #1e3a8a;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -31,13 +32,14 @@ try:
 except Exception as e:
     st.error(f"GitHub Connection Error: {e}")
 
-# App Title with AI touch
-st.title("🤖 AI-Powered Stock Management & Intelligent Alerts")
+# App Title & Company Branding
+st.title("🏢 Motherson PKC — Stock Management & Alert System")
+st.markdown("Industrial tracking, inventory monitoring, and operational supply chain alerts.")
 st.markdown("---")
 
 # Navigation menu with professional symbols
 menu = st.sidebar.radio(
-    "Navigation Hub", 
+    "Navigation Menu", 
     ["📈 General Dashboard", "🏭 Production", "🛒 Procurement", "📦 Warehouse", "🚚 Transport"]
 )
 
@@ -91,7 +93,7 @@ def save_to_github(dataframe, filename, message_text, file_sha):
                 message=message_text,
                 content=updated_excel
             )
-        st.success("✨ Changes successfully synchronized with GitHub!")
+        st.success("✅ Changes successfully synchronized with GitHub database!")
         st.rerun()
     except Exception as err:
         st.error(f"Error saving to GitHub: {err}")
@@ -107,10 +109,10 @@ base_columns = [
     "Shortage Quantity"
 ]
 
-# --- 1. GENERAL DASHBOARD WITH CHARTS & AI INSIGHTS ---
+# --- 1. GENERAL DASHBOARD WITH CHARTS & ANALYTICS ---
 if menu == "📈 General Dashboard":
-    st.header("📈 Intelligent General Dashboard")
-    st.markdown("Real-time telemetry, visual analytics, and inventory forecasting across all units.")
+    st.header("📈 General Dashboard - Motherson PKC")
+    st.markdown("Overview of key inventory metrics, shortages, and operational analytics across all units.")
     
     dfs = []
     for dept_name, fname in file_mapping.items():
@@ -124,7 +126,7 @@ if menu == "📈 General Dashboard":
         # Metrics cards
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Total Records", len(global_df), delta="Active Logs")
+            st.metric("Total Records", len(global_df))
         with col2:
             tot_avail = global_df["Quantity Available"].sum() if "Quantity Available" in global_df.columns else 0
             st.metric("Total Available Qty", tot_avail)
@@ -133,15 +135,15 @@ if menu == "📈 General Dashboard":
             st.metric("Total Required Qty", tot_req)
         with col4:
             tot_short = global_df["Shortage Quantity"].sum() if "Shortage Quantity" in global_df.columns else 0
-            st.metric("Total Shortage Qty", tot_short, delta="-Critical" if tot_short > 0 else "Stable", delta_color="inverse")
+            st.metric("Total Shortage Qty", tot_short, delta="Critical Alert" if tot_short > 0 else "Normal", delta_color="inverse")
             
         st.markdown("---")
         
-        # AI Insights Banner
-        st.info("💡 **AI Recommendation:** High shortage detected in specific product lines. Review Procurement and Transport schedules to mitigate upcoming delivery delays.")
+        # Professional Notification Banner
+        st.warning("⚠️ **System Notice:** High shortage levels detected in specific production lines. Please review Procurement and Transport schedules.")
         
         # Visual Charts Section
-        st.subheader("📊 Visual Analytics & Intelligence")
+        st.subheader("📊 Visual Analytics & Stock Status")
         col_chart1, col_chart2 = st.columns(2)
         
         with col_chart1:
@@ -161,20 +163,19 @@ else:
     current_file = file_mapping[menu]
     df, file_sha = load_excel_data(current_file)
     
-    st.header(menu)
+    st.header(f"Motherson PKC - {menu}")
     
     if "Production" in menu:
-        st.markdown("Monitor assembly lines, operational status, and real-time alerts.")
+        st.markdown("Monitor assembly lines, operational status, and stock alerts.")
         specific_cols = base_columns + ["Production Line", "Comments"]
     elif "Warehouse" in menu:
-        st.markdown("Manage material locations, spatial mapping, and stock checks.")
+        st.markdown("Manage material locations, warehouse zones, and physical stock counts.")
         specific_cols = base_columns + ["Warehouse Location", "Comments"]
     elif "Procurement" in menu:
         st.markdown("Manage suppliers, purchase orders, **ETA (Estimated Time of Arrival)**, and tracking statuses.")
-        # Utilisation de la colonne ETA à la place de Expected Delivery
         specific_cols = base_columns + ["Supplier", "Purchase Order", "Order Date", "ETA", "Purchasing Status", "Comments"]
     elif "Transport" in menu:
-        st.markdown("Track shipments, logistics carriers, and transit details.")
+        st.markdown("Track shipments, carriers, and delivery transit logistics.")
         specific_cols = base_columns + ["Transport", "Comments"]
     
     for col in specific_cols:
@@ -203,10 +204,10 @@ else:
     
     col_btn1, col_btn2 = st.columns([1, 5])
     with col_btn1:
-        save_btn = st.button(f"💾 Save Changes")
+        save_btn = st.button("💾 Save Changes")
         
     if save_btn:
-        save_to_github(edited_df, current_file, f"AI-App Update/Delete rows in {menu}", file_sha)
+        save_to_github(edited_df, current_file, f"Motherson PKC Update: {menu}", file_sha)
 
     with st.form(f"add_form_{menu}"):
         st.subheader(f"➕ Add New Entry to {menu}")
@@ -226,7 +227,7 @@ else:
         elif "Transport" in menu:
             extra_val = st.selectbox("Transport Method", ["Air", "Sea", "Road", "Express"])
             
-        submit_add = st.form_submit_button("🚀 Add and Sync with GitHub")
+        submit_add = st.form_submit_button("🚀 Add and Sync to GitHub")
         
         if submit_add:
             df_current = edited_df.copy()
@@ -245,4 +246,4 @@ else:
                 new_row["Transport"] = extra_val
                 
             updated_df = pd.concat([df_current, new_row], ignore_index=True)
-            save_to_github(updated_df, current_file, f"Add new row in {menu} via AI Form", file_sha)
+            save_to_github(updated_df, current_file, f"Motherson PKC Add row in {menu}", file_sha)
