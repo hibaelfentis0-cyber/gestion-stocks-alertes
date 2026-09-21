@@ -37,10 +37,10 @@ st.title("🏢 Motherson PKC — Stock Management & Alert System")
 st.markdown("Industrial tracking, inventory monitoring, and operational supply chain alerts.")
 st.markdown("---")
 
-# Navigation menu with professional symbols
+# Navigation menu with a logical supply chain order
 menu = st.sidebar.radio(
     "Navigation Menu", 
-    ["📈 General Dashboard", "🏭 Production", "🛒 Procurement", "📦 Warehouse", "🚚 Transport"]
+    ["📈 General Dashboard", "📦 Warehouse", "🛒 Procurement", "🏭 Production", "🚚 Transport"]
 )
 
 # Map departments to their respective Excel files on GitHub
@@ -176,7 +176,6 @@ else:
         specific_cols = base_columns + ["Supplier", "Purchase Order", "Order Date", "ETA", "Purchasing Status", "Comments"]
     elif "Transport" in menu:
         st.markdown("Track shipments, carriers, **Truck Number**, and delivery transit logistics.")
-        # Remplacement de "Plant Number" par "Truck Number" ici
         specific_cols = base_columns + ["Transport", "Truck Number", "Comments"]
     
     # Force creation of missing columns in the dataframe so they immediately display on the UI
