@@ -37,10 +37,10 @@ st.title("🏢 Motherson PKC — Stock Management & Alert System")
 st.markdown("Industrial tracking, inventory monitoring, and operational supply chain alerts.")
 st.markdown("---")
 
-# Navigation menu with a logical supply chain order
+# Navigation menu with the exact requested order: Dashboard -> Production -> Warehouse -> Procurement -> Transport
 menu = st.sidebar.radio(
     "Navigation Menu", 
-    ["📈 General Dashboard", "📦 Warehouse", "🛒 Procurement", "🏭 Production", "🚚 Transport"]
+    ["📈 General Dashboard", "🏭 Production", "📦 Warehouse", "🛒 Procurement", "🚚 Transport"]
 )
 
 # Map departments to their respective Excel files on GitHub
@@ -166,16 +166,16 @@ else:
     st.header(f"Motherson PKC - {menu}")
     
     if "Production" in menu:
-        st.markdown("Monitor assembly lines, operational status, and stock alerts.")
+        st.markdown("Monitor assembly lines, operational status, and production stock alerts.")
         specific_cols = base_columns + ["Production Line", "Comments"]
     elif "Warehouse" in menu:
-        st.markdown("Manage material locations, warehouse zones, and physical stock counts.")
+        st.markdown("Manage material locations, warehouse zones, and warehouse stock check.")
         specific_cols = base_columns + ["Warehouse Location", "Comments"]
     elif "Procurement" in menu:
-        st.markdown("Manage suppliers, purchase orders, **ETA (Estimated Time of Arrival)**, and tracking statuses.")
+        st.markdown("Manage suppliers, purchase orders, lancer commande, ETA, and purchasing statuses.")
         specific_cols = base_columns + ["Supplier", "Purchase Order", "Order Date", "ETA", "Purchasing Status", "Comments"]
     elif "Transport" in menu:
-        st.markdown("Track shipments, carriers, **Truck Number**, and delivery transit logistics.")
+        st.markdown("Track shipments, carriers, Truck Number, and transport tracking logistics.")
         specific_cols = base_columns + ["Transport", "Truck Number", "Comments"]
     
     # Force creation of missing columns in the dataframe so they immediately display on the UI
