@@ -4,7 +4,7 @@ import pandas as pd
 from io import BytesIO
 
 # Page configuration
-st.set_page_config(page_title="Stock Management & Alerts", layout="wide")
+st.set_page_config(page_title="Motherson Stock Management & Alerts", layout="wide")
 
 # GitHub Connection using Streamlit Secrets
 try:
@@ -13,7 +13,7 @@ try:
 except Exception as e:
     st.error(f"GitHub Connection Error: {e}")
 
-st.title("📊 Stock Management & Alerts System")
+st.title("📊 Motherson - Stock Management & Wire Harness Alerts")
 
 # Navigation menu with symbols (Dashboard + 4 Departments)
 menu = st.sidebar.radio(
@@ -21,7 +21,7 @@ menu = st.sidebar.radio(
     ["📈 General Dashboard", "🏭 Production", "🛒 Procurement", "📦 Warehouse", "🚚 Transport"]
 )
 
-# Map departments to their respective Excel files
+# Map departments to their respective Excel files on GitHub
 file_mapping = {
     "🏭 Production": "01_Production_Stock_Alert.xlsx",
     "📦 Warehouse": "02_Warehouse_Stock_Alert.xlsx",
@@ -37,16 +37,16 @@ def load_excel_data(filename):
         df = pd.read_excel(BytesIO(decoded_content))
         return df, file_content.sha
     except Exception:
-        # Fallback dummy data if file doesn't exist yet
+        # Fallback dummy data tailored for Motherson wire harness manufacturing
         data = {
             "Alert ID": ["ALT-001", "ALT-002"],
             "Date": ["2026-06-01", "2026-06-02"],
-            "Product Code": ["PRD-A", "PRD-B"],
-            "Product Description": ["Beauty Blender Set", "Makeup Brush Pro"],
-            "Quantity Available": [10, 5],
-            "Quantity Required": [50, 30],
-            "Shortage Quantity": [40, 25],
-            "Comments": ["Urgent restock", "Pending check"]
+            "Product Code": ["HARN-FRONT-01", "CONN-32PIN-02"],
+            "Product Description": ["Main Wire Harness - Dashboard", "Connector 32-pin Sealed"],
+            "Quantity Available": [120, 450],
+            "Quantity Required": [300, 800],
+            "Shortage Quantity": [180, 350],
+            "Comments": ["Urgent crimping batch", "Pending supplier shipment"]
         }
         return pd.DataFrame(data), None
 
@@ -89,10 +89,9 @@ base_columns = [
 
 # --- 1. GENERAL DASHBOARD ---
 if menu == "📈 General Dashboard":
-    st.header("📈 General Stock Dashboard")
-    st.markdown("Overview of all key metrics and global inventory status across departments.")
+    st.header("📈 General Stock Dashboard - Motherson")
+    st.markdown("Overview of all key metrics and global wire harness inventory status across departments.")
     
-    # Load all department files for the dashboard overview
     dfs = []
     for dept_name, fname in file_mapping.items():
         d_df, _ = load_excel_data(fname)
@@ -126,16 +125,16 @@ else:
     st.header(menu)
     
     if "Production" in menu:
-        st.markdown("Monitor production lines, material requirements, and operational alerts.")
+        st.markdown("Monitor wire harness assembly lines, cutting/crimping status, and operational alerts.")
         specific_cols = base_columns + ["Production Line", "Comments"]
     elif "Warehouse" in menu:
-        st.markdown("Manage warehouse locations, inventory availability, and stock checks.")
+        st.markdown("Manage raw material locations (copper wire reels, connectors) and stock checks.")
         specific_cols = base_columns + ["Warehouse Location", "Comments"]
     elif "Procurement" in menu:
-        st.markdown("Manage suppliers, purchase orders, expected deliveries (ETA), and purchasing statuses.")
+        st.markdown("Manage harness component suppliers, purchase orders, expected deliveries (ETA), and statuses.")
         specific_cols = base_columns + ["Supplier", "Purchase Order", "Order Date", "Expected Delivery", "Purchasing Status", "Comments"]
     elif "Transport" in menu:
-        st.markdown("Track shipping methods, carriers, and transit details.")
+        st.markdown("Track finished harness shipments, carriers, and transit details to automotive plants.")
         specific_cols = base_columns + ["Transport", "Comments"]
     
     for col in specific_cols:
@@ -144,7 +143,6 @@ else:
             
     df_view = df[specific_cols]
     
-    # Editor config
     column_configs = {}
     if "Purchasing Status" in specific_cols:
         valid_statuses = ["Pending", "Ordered", "Shipped", "Delivered", "Cancelled"]
@@ -167,14 +165,14 @@ else:
 
     with st.form(f"add_form_{menu}"):
         st.subheader(f"Add New Entry to {menu}")
-        prod_code = st.text_input("Product Code", "PRD-NEW")
-        prod_desc = st.text_input("Product Description", "Description")
+        prod_code = st.text_input("Product Code", "HARN-NEW-01")
+        prod_desc = st.text_input("Product Description", "Wire Harness Component")
         
         extra_val = ""
         if "Production" in menu:
-            extra_val = st.text_input("Production Line", "Line 1")
+            extra_val = st.text_input("Production Line", "Assembly Line A")
         elif "Warehouse" in menu:
-            extra_val = st.text_input("Warehouse Location", "Zone A")
+            extra_val = st.text_input("Warehouse Location", "Zone C - Racks")
         elif "Procurement" in menu:
             extra_val = st.text_input("Supplier", "Supplier Name")
         elif "Transport" in menu:
