@@ -159,7 +159,7 @@ if menu == "📈 General Dashboard":
         with col4:
             st.metric("Shortage Quantity", tot_short, delta="Critical" if tot_short > 0 else "OK", delta_color="inverse")
         with col5:
-            st.metric("Taux de Service", f"{service_rate:.1f}%", delta="Couverture Stock" if service_rate >= 80 else "Risque Rupture", delta_color="normal" if service_rate >= 80 else "inverse")
+            st.metric("Service Rate", f"{service_rate:.1f}%", delta="Stock Coverage" if service_rate >= 80 else "Risk of Stockout", delta_color="normal" if service_rate >= 80 else "inverse")
             
         st.markdown("---")
         
@@ -171,7 +171,7 @@ if menu == "📈 General Dashboard":
         excel_data = output_excel.getvalue()
         
         st.download_button(
-            label="📥 Télécharger le rapport global complet (.xlsx)",
+            label="📥 Download Complete Global Report (.xlsx)",
             data=excel_data,
             file_name=f"Motherson_PKC_Global_Report_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -192,7 +192,7 @@ if menu == "📈 General Dashboard":
                 shortage_summary = global_df.groupby("Product Code")["Shortage Quantity"].sum()
                 st.bar_chart(shortage_summary)
         else:
-            st.info("ℹ️ Aucune donnée enregistrée pour le moment. Utilisez les onglets de département pour ajouter vos premières lignes.")
+            st.info("ℹ️ No records found yet. Use the department tabs to add your first entries.")
 
 # --- 2. SPECIFIC DEPARTMENTS ---
 else:
@@ -205,13 +205,13 @@ else:
         st.markdown("Monitor assembly lines, operational status, and production stock alerts.")
         specific_cols = base_columns + ["Production Line", "Comments"]
     elif "Warehouse" in menu:
-        st.markdown("Manage material locations, warehouse zones, and warehouse stock check.")
+        st.markdown("Manage material locations, warehouse zones, and warehouse stock checks.")
         specific_cols = base_columns + ["Warehouse Location", "Comments"]
     elif "Procurement" in menu:
-        st.markdown("Manage suppliers, purchase orders, lancer commande, ETA, and purchasing statuses.")
+        st.markdown("Manage suppliers, purchase orders, tracking, ETAs, and purchasing statuses.")
         specific_cols = base_columns + ["Supplier", "Purchase Order", "Order Date", "ETA", "Purchasing Status", "Comments"]
     elif "Transport" in menu:
-        st.markdown("Track shipments, carriers, Truck Number, and transport tracking logistics.")
+        st.markdown("Track shipments, carriers, truck numbers, and transport logistics.")
         specific_cols = base_columns + ["Transport", "Truck Number", "Comments"]
     
     for col in specific_cols:
@@ -231,21 +231,7 @@ else:
         df_view["Transport"] = df_view["Transport"].apply(lambda x: x if x in valid_transports else "Road")
         column_configs["Transport"] = st.column_config.SelectboxColumn("Transport Method", options=valid_transports, required=True)
 
-    def color_criticality(row):
-        try:
-            shortage = float(row["Shortage Quantity"])
-        except:
-            shortage = 0
-        
-        if shortage > 500:
-            return ['background-color: #fee2e2; color: #991b1b'] * len(row)
-        elif shortage > 0:
-            return ['background-color: #fef3c7; color: #92400e'] * len(row)
-        else:
-            return ['background-color: #ecfdf5; color: #065f46'] * len(row)
-
-    st.markdown("### 📋 Données du département (Coloré selon la criticité du manque)")
-    st.caption("🟢 Vert = OK / 🟠 Orange = Manque modéré / 🔴 Rouge = Manque critique (> 500 unités)")
+    st.markdown("### 📋 Department Data Records")
     
     edited_df = st.data_editor(
         df_view,
