@@ -4,7 +4,7 @@ import pandas as pd
 from io import BytesIO
 
 # Page configuration
-st.set_page_config(page_title="Motherson Stock Management & Alerts", layout="wide")
+st.set_page_config(page_title="Stock Management & Alerts", layout="wide")
 
 # GitHub Connection using Streamlit Secrets
 try:
@@ -13,7 +13,7 @@ try:
 except Exception as e:
     st.error(f"GitHub Connection Error: {e}")
 
-st.title("📊 Motherson - Stock Management & Wire Harness Alerts")
+st.title("📊 Stock Management & Alerts System")
 
 # Navigation menu with symbols (Dashboard + 4 Departments)
 menu = st.sidebar.radio(
@@ -37,7 +37,7 @@ def load_excel_data(filename):
         df = pd.read_excel(BytesIO(decoded_content))
         return df, file_content.sha
     except Exception:
-        # Fallback dummy data tailored for Motherson wire harness manufacturing
+        # Fallback dummy data
         data = {
             "Alert ID": ["ALT-001", "ALT-002"],
             "Date": ["2026-06-01", "2026-06-02"],
@@ -87,10 +87,10 @@ base_columns = [
     "Shortage Quantity"
 ]
 
-# --- 1. GENERAL DASHBOARD ---
+# --- 1. GENERAL DASHBOARD WITH CHARTS ---
 if menu == "📈 General Dashboard":
-    st.header("📈 General Stock Dashboard - Motherson")
-    st.markdown("Overview of all key metrics and global wire harness inventory status across departments.")
+    st.header("📈 General Stock Dashboard")
+    st.markdown("Overview of key metrics, visual analytics, and inventory status across all departments.")
     
     dfs = []
     for dept_name, fname in file_mapping.items():
@@ -100,6 +100,8 @@ if menu == "📈 General Dashboard":
     
     if dfs:
         global_df = pd.concat(dfs, ignore_index=True)
+        
+        # Metrics cards
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("Total Records", len(global_df))
@@ -114,6 +116,24 @@ if menu == "📈 General Dashboard":
             st.metric("Total Shortage Qty", tot_short)
             
         st.markdown("---")
+        
+        # Visual Charts Section
+        st.subheader("📊 Visual Analytics & Graphics")
+        col_chart1, col_chart2 = st.columns(2)
+        
+        with col_chart1:
+            st.markdown("**Quantities by Department (Available vs Required)**")
+            if "Department" in global_df.columns and "Quantity Available" in global_df.columns:
+                dept_summary = global_df.groupby("Department")[["Quantity Available", "Quantity Required"]].sum()
+                st.bar_chart(dept_summary)
+                
+        with col_chart2:
+            st.markdown("**Shortage Quantity per Product**")
+            if "Product Code" in global_df.columns and "Shortage Quantity" in global_df.columns:
+                shortage_summary = global_df.groupby("Product Code")["Shortage Quantity"].sum()
+                st.bar_chart(shortage_summary)
+
+        st.markdown("---")
         st.subheader("Combined Data View")
         st.dataframe(global_df, use_container_width=True)
 
@@ -125,16 +145,16 @@ else:
     st.header(menu)
     
     if "Production" in menu:
-        st.markdown("Monitor wire harness assembly lines, cutting/crimping status, and operational alerts.")
+        st.markdown("Monitor assembly lines, cutting/crimping status, and operational alerts.")
         specific_cols = base_columns + ["Production Line", "Comments"]
     elif "Warehouse" in menu:
-        st.markdown("Manage raw material locations (copper wire reels, connectors) and stock checks.")
+        st.markdown("Manage raw material locations and stock checks.")
         specific_cols = base_columns + ["Warehouse Location", "Comments"]
     elif "Procurement" in menu:
-        st.markdown("Manage harness component suppliers, purchase orders, expected deliveries (ETA), and statuses.")
+        st.markdown("Manage component suppliers, purchase orders, expected deliveries (ETA), and statuses.")
         specific_cols = base_columns + ["Supplier", "Purchase Order", "Order Date", "Expected Delivery", "Purchasing Status", "Comments"]
     elif "Transport" in menu:
-        st.markdown("Track finished harness shipments, carriers, and transit details to automotive plants.")
+        st.markdown("Track shipments, carriers, and transit details to plants.")
         specific_cols = base_columns + ["Transport", "Comments"]
     
     for col in specific_cols:
@@ -165,8 +185,8 @@ else:
 
     with st.form(f"add_form_{menu}"):
         st.subheader(f"Add New Entry to {menu}")
-        prod_code = st.text_input("Product Code", "HARN-NEW-01")
-        prod_desc = st.text_input("Product Description", "Wire Harness Component")
+        prod_code = st.text_input("Product Code", "PRD-NEW-01")
+        prod_desc = st.text_input("Product Description", "Item Description")
         
         extra_val = ""
         if "Production" in menu:
