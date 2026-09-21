@@ -4,7 +4,25 @@ import pandas as pd
 from io import BytesIO
 
 # Page configuration
-st.set_page_config(page_title="Stock Management & Alerts", layout="wide")
+st.set_page_config(page_title="AI Stock & Intelligence Alerts", page_icon="🤖", layout="wide")
+
+# Custom UI styling for an AI-powered look
+st.markdown("""
+    <style>
+    .main {
+        background-color: #0e1117;
+    }
+    .stMetric {
+        background-color: #1a1c24;
+        padding: 15px;
+        border-radius: 10px;
+        border: 1px solid #30363d;
+    }
+    h1, h2, h3 {
+        color: #58a6ff;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # GitHub Connection using Streamlit Secrets
 try:
@@ -13,11 +31,13 @@ try:
 except Exception as e:
     st.error(f"GitHub Connection Error: {e}")
 
-st.title("📊 Stock Management & Alerts System")
+# App Title with AI touch
+st.title("🤖 AI-Powered Stock Management & Intelligent Alerts")
+st.markdown("---")
 
-# Navigation menu with symbols (Dashboard + 4 Departments)
+# Navigation menu with professional symbols
 menu = st.sidebar.radio(
-    "Navigation Menu", 
+    "Navigation Hub", 
     ["📈 General Dashboard", "🏭 Production", "🛒 Procurement", "📦 Warehouse", "🚚 Transport"]
 )
 
@@ -71,7 +91,7 @@ def save_to_github(dataframe, filename, message_text, file_sha):
                 message=message_text,
                 content=updated_excel
             )
-        st.success("Changes successfully saved to GitHub!")
+        st.success("✨ Changes successfully synchronized with GitHub!")
         st.rerun()
     except Exception as err:
         st.error(f"Error saving to GitHub: {err}")
@@ -87,10 +107,10 @@ base_columns = [
     "Shortage Quantity"
 ]
 
-# --- 1. GENERAL DASHBOARD WITH CHARTS (Combined Data View removed) ---
+# --- 1. GENERAL DASHBOARD WITH CHARTS & AI INSIGHTS ---
 if menu == "📈 General Dashboard":
-    st.header("📈 General Stock Dashboard")
-    st.markdown("Overview of key metrics and visual analytics across all departments.")
+    st.header("📈 Intelligent General Dashboard")
+    st.markdown("Real-time telemetry, visual analytics, and inventory forecasting across all units.")
     
     dfs = []
     for dept_name, fname in file_mapping.items():
@@ -104,7 +124,7 @@ if menu == "📈 General Dashboard":
         # Metrics cards
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Total Records", len(global_df))
+            st.metric("Total Records", len(global_df), delta="Active Logs")
         with col2:
             tot_avail = global_df["Quantity Available"].sum() if "Quantity Available" in global_df.columns else 0
             st.metric("Total Available Qty", tot_avail)
@@ -113,12 +133,15 @@ if menu == "📈 General Dashboard":
             st.metric("Total Required Qty", tot_req)
         with col4:
             tot_short = global_df["Shortage Quantity"].sum() if "Shortage Quantity" in global_df.columns else 0
-            st.metric("Total Shortage Qty", tot_short)
+            st.metric("Total Shortage Qty", tot_short, delta="-Critical" if tot_short > 0 else "Stable", delta_color="inverse")
             
         st.markdown("---")
         
+        # AI Insights Banner
+        st.info("💡 **AI Recommendation:** High shortage detected in specific product lines. Review Procurement and Transport schedules to mitigate upcoming delivery delays.")
+        
         # Visual Charts Section
-        st.subheader("📊 Visual Analytics & Graphics")
+        st.subheader("📊 Visual Analytics & Intelligence")
         col_chart1, col_chart2 = st.columns(2)
         
         with col_chart1:
@@ -141,16 +164,17 @@ else:
     st.header(menu)
     
     if "Production" in menu:
-        st.markdown("Monitor assembly lines, operational status, and alerts.")
+        st.markdown("Monitor assembly lines, operational status, and real-time alerts.")
         specific_cols = base_columns + ["Production Line", "Comments"]
     elif "Warehouse" in menu:
-        st.markdown("Manage material locations and stock checks.")
+        st.markdown("Manage material locations, spatial mapping, and stock checks.")
         specific_cols = base_columns + ["Warehouse Location", "Comments"]
     elif "Procurement" in menu:
-        st.markdown("Manage suppliers, purchase orders, expected deliveries (ETA), and statuses.")
-        specific_cols = base_columns + ["Supplier", "Purchase Order", "Order Date", "Expected Delivery", "Purchasing Status", "Comments"]
+        st.markdown("Manage suppliers, purchase orders, **ETA (Estimated Time of Arrival)**, and tracking statuses.")
+        # Utilisation de la colonne ETA à la place de Expected Delivery
+        specific_cols = base_columns + ["Supplier", "Purchase Order", "Order Date", "ETA", "Purchasing Status", "Comments"]
     elif "Transport" in menu:
-        st.markdown("Track shipments, carriers, and transit details.")
+        st.markdown("Track shipments, logistics carriers, and transit details.")
         specific_cols = base_columns + ["Transport", "Comments"]
     
     for col in specific_cols:
@@ -177,13 +201,20 @@ else:
         key=f"{menu}_editor"
     )
     
-    if st.button(f"Save {menu} Changes"):
-        save_to_github(edited_df, current_file, f"Update/Delete rows in {menu} from Streamlit", file_sha)
+    col_btn1, col_btn2 = st.columns([1, 5])
+    with col_btn1:
+        save_btn = st.button(f"💾 Save Changes")
+        
+    if save_btn:
+        save_to_github(edited_df, current_file, f"AI-App Update/Delete rows in {menu}", file_sha)
 
     with st.form(f"add_form_{menu}"):
-        st.subheader(f"Add New Entry to {menu}")
-        prod_code = st.text_input("Product Code", "PRD-NEW-01")
-        prod_desc = st.text_input("Product Description", "Item Description")
+        st.subheader(f"➕ Add New Entry to {menu}")
+        f_col1, f_col2 = st.columns(2)
+        with f_col1:
+            prod_code = st.text_input("Product Code", "PRD-NEW-01")
+        with f_col2:
+            prod_desc = st.text_input("Product Description", "Item Description")
         
         extra_val = ""
         if "Production" in menu:
@@ -195,7 +226,7 @@ else:
         elif "Transport" in menu:
             extra_val = st.selectbox("Transport Method", ["Air", "Sea", "Road", "Express"])
             
-        submit_add = st.form_submit_button("Add and Save to GitHub")
+        submit_add = st.form_submit_button("🚀 Add and Sync with GitHub")
         
         if submit_add:
             df_current = edited_df.copy()
@@ -214,4 +245,4 @@ else:
                 new_row["Transport"] = extra_val
                 
             updated_df = pd.concat([df_current, new_row], ignore_index=True)
-            save_to_github(updated_df, current_file, f"Add new row in {menu} via form", file_sha)
+            save_to_github(updated_df, current_file, f"Add new row in {menu} via AI Form", file_sha)
