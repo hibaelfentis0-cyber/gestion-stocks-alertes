@@ -86,7 +86,7 @@ def calculate_intelligence(row):
     
     return stock_status, priority, shortage, reorder_point, stock_out_date
 
-# Function to load data with separated roles (Production = Required, Warehouse = Available + Notifications)
+# Function to load data with separated roles
 def load_excel_data(filename, dept_name):
     try:
         file_content = repo.get_contents(filename)
@@ -132,13 +132,13 @@ def load_excel_data(filename, dept_name):
         
         base_src = p_row if dept_name == "🏭 Production" else w_row
         if not base_src:
-            base_src = w_row if not w_row.empty else p_row
+            base_src = w_row if bool(w_row) else p_row
             
         temp_dict = {
             "Quantity Available": avail, "Quantity Required": req,
-            "Daily Consumption": base_src.get("Daily Consumption", 5),
-            "Lead Time": base_src.get("Lead Time", 5),
-            "Safety Stock": base_src.get("Safety Stock", 10)
+            "Daily Consumption": base_src.get("Daily Consumption", 5) if isinstance(base_src, dict) else 5,
+            "Lead Time": base_src.get("Lead Time", 5) if isinstance(base_src, dict) else 5,
+            "Safety Stock": base_src.get("Safety Stock", 10) if isinstance(base_src, dict) else 10
         }
         stock_status, priority, shortage, reorder_point, stock_out_date = calculate_intelligence(temp_dict)
 
@@ -151,33 +151,34 @@ def load_excel_data(filename, dept_name):
             notif_status = "✅ Normal (Stock OK)"
 
         row_data = {
-            "Alert ID": base_src.get("Alert ID", f"ALT-{p_code}"),
-            "Date": base_src.get("Date", datetime.now().strftime("%Y-%m-%d")),
+            "Alert ID": base_src.get("Alert ID", f"ALT-{p_code}") if isinstance(base_src, dict) else f"ALT-{p_code}",
+            "Date": base_src.get("Date", datetime.now().strftime("%Y-%m-%d")) if isinstance(base_src, dict) else datetime.now().strftime("%Y-%m-%d"),
             "Product Code": p_code,
-            "Product Description": base_src.get("Product Description", "None"),
+            "Product Description": base_src.get("Product Description", "None") if isinstance(base_src, dict) else "None",
             "Quantity Required": req,
             "Quantity Available": avail,
             "Shortage Quantity": shortage,
             "Stock Status": stock_status,
             "Priority": priority,
             "Warehouse Notification": notif_status,
-            "Daily Consumption": base_src.get("Daily Consumption", 5),
-            "Lead Time": base_src.get("Lead Time", 5),
-            "Safety Stock": base_src.get("Safety Stock", 10),
+            "Daily Consumption": temp_dict["Daily Consumption"],
+            "Lead Time": temp_dict["Lead Time"],
+            "Safety Stock": temp_dict["Safety Stock"],
             "Reorder Point": reorder_point,
             "Estimated Stock-Out Date": stock_out_date,
-            "Lifecycle Stage": base_src.get("Lifecycle Stage", "Alert Created"),
-            "Last Updated": base_src.get("Last Updated", datetime.now().strftime("%Y-%m-%d %H:%M")),
-            "Production Line": p_row.get("Production Line", ""),
-            "Warehouse Location": w_row.get("Warehouse Location", ""),
-            "Comments": base_src.get("Comments", "")
+            "Lifecycle Stage": base_src.get("Lifecycle Stage", "Alert Created") if isinstance(base_src, dict) else "Alert Created",
+            "Last Updated": base_src.get("Last Updated", datetime.now().strftime("%Y-%m-%d %H:%M")) if isinstance(base_src, dict) else datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "Production Line": p_row.get("Production Line", "") if isinstance(p_row, dict) else "",
+            "Warehouse Location": w_row.get("Warehouse Location", "") if isinstance(w_row, dict) else "",
+            "Comments": base_src.get("Comments", "") if isinstance(base_src, dict) else ""
         }
         combined_rows.append(row_data)
 
     final_df = pd.DataFrame(combined_rows)
 
     if dept_name in ["🛒 Procurement", "🚚 Transport"]:
-        final_df = final_df[final_df["Stock Status"] != "🟢 Normal Stock"]
+        if "Stock Status" in final_df.columns:
+            final_df = final_df[final_df["Stock Status"] != "🟢 Normal Stock"]
 
     try:
         fc = repo.get_contents(filename)
@@ -212,7 +213,7 @@ if menu == "📈 General Dashboard":
     if dfs:
         global_df = pd.concat(dfs, ignore_index=True).drop_duplicates(subset=["Product Code"])
         total_alerts = len(global_df)
-        shortages_count = len(global_df[global_df["Stock Status"] == "🔴 Shortage"])
+        shortages_count = len(global_df[global_df["Stock Status"] == "🔴 Shortage"]) if "Stock Status" in global_df.columns else 0
         
         k1, k2, k3 = st.columns(3)
         with k1: st.metric("Total Items Tracked", total_alerts)
@@ -249,10 +250,8 @@ else:
         current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         edited_df["Last Updated"] = current_time_str
         
-        # Save current department changes
         save_to_github(edited_df, current_file, f"Update {menu}", file_sha)
         
-        # Synchronize counterparts between Production and Warehouse automatically
         if "Production" in menu or "Warehouse" in menu:
             other_menu = "📦 Warehouse" if "Production" in menu else "🏭 Production"
             other_file = file_mapping[other_menu]
