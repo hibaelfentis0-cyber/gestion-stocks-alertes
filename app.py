@@ -1,4 +1,4 @@
-import streamlit as st
+ import streamlit as st
 from github import Github
 import pandas as pd
 from io import BytesIO
@@ -28,7 +28,6 @@ try:
     logo_content = repo.get_contents("logo.png")
     st.sidebar.image(BytesIO(logo_content.decoded_content), width="stretch")
 except Exception:
-    # Solution de secours si logo.png n'est pas dans le repo
     st.sidebar.image("https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/Logo_Motherson.svg/1200px-Logo_Motherson.svg.png", width="stretch")
 
 st.sidebar.markdown("---")
@@ -465,32 +464,47 @@ else:
             key=f"download_{menu}"
         )
 
-    # --- 3. ADD NEW ENTRY BELOW THE TABLE ---
-    with st.expander(f"➕ Add New Product Entry to {menu}"):
-        with st.form(key=f"add_form_{menu}"):
-            col_a, col_b, col_c = st.columns(3)
-            with col_a:
+    st.markdown("---")
+
+    # --- 3. ADD NEW ENTRY & DELETE ENTRY ---
+    col_add, col_del = st.columns(2)
+    
+    with col_add:
+        with st.expander(f"➕ Add New Product Entry to {menu}"):
+            with st.form(key=f"add_form_{menu}"):
                 new_pcode = st.text_input("Product Code (e.g., PROD-100)")
-            with col_b:
                 new_pdesc = st.text_input("Product Description")
-            with col_c:
                 new_qty = st.number_input("Quantity / Requirement", min_value=0.0, value=100.0)
-            
-            submit_add = st.form_submit_button("Add Product Entry")
-            if submit_add and new_pcode:
-                new_row = {c: "" for c in df.columns}
-                new_row["Alert ID"] = f"ALT-{new_pcode}"
-                new_row["Date"] = datetime.now().strftime("%Y-%m-%d")
-                new_row["Product Code"] = new_pcode
-                new_row["Product Description"] = new_pdesc
-                if "Quantity Required" in new_row: new_row["Quantity Required"] = new_qty
-                if "Quantity Available" in new_row: new_row["Quantity Available"] = new_qty
-                if "Daily Consumption" in new_row: new_row["Daily Consumption"] = 5.0
-                if "Lead Time" in new_row: new_row["Lead Time"] = 5.0
-                if "Safety Stock" in new_row: new_row["Safety Stock"] = 10.0
-                new_row["Last Updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                 
-                df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-                save_to_github(df, current_file, f"Add product {new_pcode} in {menu}", file_sha)
-                st.success(f"Product {new_pcode} added successfully!")
-                st.rerun()
+                submit_add = st.form_submit_button("Add Product Entry")
+                if submit_add and new_pcode:
+                    new_row = {c: "" for c in df.columns}
+                    new_row["Alert ID"] = f"ALT-{new_pcode}"
+                    new_row["Date"] = datetime.now().strftime("%Y-%m-%d")
+                    new_row["Product Code"] = new_pcode
+                    new_row["Product Description"] = new_pdesc
+                    if "Quantity Required" in new_row: new_row["Quantity Required"] = new_qty
+                    if "Quantity Available" in new_row: new_row["Quantity Available"] = new_qty
+                    if "Daily Consumption" in new_row: new_row["Daily Consumption"] = 5.0
+                    if "Lead Time" in new_row: new_row["Lead Time"] = 5.0
+                    if "Safety Stock" in new_row: new_row["Safety Stock"] = 10.0
+                    new_row["Last Updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    
+                    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+                    save_to_github(df, current_file, f"Add product {new_pcode} in {menu}", file_sha)
+                    st.success(f"Product {new_pcode} added successfully!")
+                    st.rerun()
+
+    with col_del:
+        with st.expander(f"🗑️ Delete Product Entry from {menu}"):
+            with st.form(key=f"del_form_{menu}"):
+                product_list = df["Product Code"].tolist() if "Product Code" in df.columns else []
+                target_to_delete = st.selectbox("Select Product Code to Delete:", options=product_list)
+                
+                submit_del = st.form_submit_button("Delete Product")
+                if submit_del and target_to_delete:
+                    df = df[df["Product Code"] != target_to_delete]
+                    save_to_github(df, current_file, f"Delete product {target_to_delete} from {menu}", file_sha)
+                    st.success(f"Product {target_to_delete} deleted successfully!")
+                    st.rerun()
+
