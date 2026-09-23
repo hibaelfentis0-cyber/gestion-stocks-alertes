@@ -106,36 +106,48 @@ def calculate_intelligence(row):
     
     return stock_status, priority, shortage, reorder_point, stock_out_date
 
-# Function to load data with automatic cross-department pipeline synchronization (Warehouse is Master Control)
+# Function to load data with FULL Synchronized Pipeline (Production and Warehouse act as synchronized masters)
 def load_excel_data(filename, dept_name):
     try:
         file_content = repo.get_contents(filename)
-        decoded_content = file_content.decoded_content
-        df = pd.read_excel(BytesIO(decoded_content))
+        df = pd.read_excel(BytesIO(file_content.decoded_content))
     except Exception:
         df = pd.DataFrame()
         
-    # Load Warehouse data as Master Source
+    # Load both Production and Warehouse files to keep them cross-synchronized
+    prod_file = file_mapping["🏭 Production"]
     wh_file = file_mapping["📦 Warehouse"]
+    
+    prod_df = pd.DataFrame()
     wh_df = pd.DataFrame()
+    
     try:
-        wh_content = repo.get_contents(wh_file)
-        wh_df = pd.read_excel(BytesIO(wh_content.decoded_content))
+        p_content = repo.get_contents(prod_file)
+        prod_df = pd.read_excel(BytesIO(p_content.decoded_content))
     except Exception:
-        wh_df = pd.DataFrame()
+        pass
+        
+    try:
+        w_content = repo.get_contents(wh_file)
+        wh_df = pd.read_excel(BytesIO(w_content.decoded_content))
+    except Exception:
+        pass
 
-    # If loading Production or Warehouse, we synchronize master quantities from Warehouse
-    if dept_name in ["🏭 Production", "📦 Warehouse"] and not wh_df.empty:
-        if dept_name == "🏭 Production":
-            # Production mirrors Warehouse master quantities & parameters
-            new_rows = []
-            specific_data_map = {}
-            if not df.empty and "Product Code" in df.columns:
-                for _, row in df.iterrows():
-                    p_code = row.get("Product Code")
-                    if pd.notna(p_code): specific_data_map[p_code] = row.to_dict()
-
-            for _, src_row in wh_df.iterrows():
+    # Merge or synchronize master quantities between Production and Warehouse if one of them is updated
+    if dept_name in ["🏭 Production", "📦 Warehouse"]:
+        source_master = prod_df if dept_name == "🏭 Production" else wh_df
+        target_file = wh_file if dept_name == "🏭 Production" else prod_file
+        target_df = wh_df if dept_name == "🏭 Production" else prod_df
+        
+        if not source_master.empty:
+            updated_target_rows = []
+            target_map = {}
+            if not target_df.empty and "Product Code" in target_df.columns:
+                for _, r in target_df.iterrows():
+                    pc = r.get("Product Code")
+                    if pd.notna(pc): target_map[pc] = r.to_dict()
+            
+            for _, src_row in source_master.iterrows():
                 p_code = src_row.get("Product Code", "")
                 avail = pd.to_numeric(src_row.get("Quantity Available", 0), errors='coerce')
                 req = pd.to_numeric(src_row.get("Quantity Required", 0), errors='coerce')
@@ -168,19 +180,34 @@ def load_excel_data(filename, dept_name):
                     "Last Updated": src_row.get("Last Updated", "")
                 }
                 
-                if p_code in specific_data_map:
-                    old_row = specific_data_map[p_code]
-                    for col in df.columns:
-                        if col not in row_data: row_data[col] = old_row.get(col, "")
+                if p_code in target_map:
+                    old_r = target_map[p_code]
+                    for col in target_df.columns:
+                        if col not in row_data: row_data[col] = old_r.get(col, "")
                 else:
-                    row_data["Production Line"] = ""
-                    row_data["Comments"] = ""
-                new_rows.append(row_data)
-            df = pd.DataFrame(new_rows)
+                    if dept_name == "🏭 Production":
+                        row_data["Warehouse Location"] = ""
+                        row_data["Comments"] = ""
+                    else:
+                        row_data["Production Line"] = ""
+                        row_data["Comments"] = ""
+                        
+                updated_target_rows.append(row_data)
+            
+            new_target_df = pd.DataFrame(updated_target_rows)
+            # Save the synchronized counterpart automatically in GitHub background
+            try:
+                output_sync = BytesIO()
+                with pd.ExcelWriter(output_sync, engine='openpyxl') as writer:
+                    new_target_df.to_excel(writer, index=False)
+                fc_target = repo.get_contents(target_file)
+                repo.update_file(path=target_file, message=f"Auto-sync from {dept_name}", content=output_sync.getvalue(), sha=fc_target.sha)
+            except Exception:
+                pass
 
-    # If loading Procurement or Transport, filter only items requiring action (Low Stock, Last Box, Shortage)
+    # If loading Procurement or Transport, filter items that require action
     elif dept_name in ["🛒 Procurement", "🚚 Transport"]:
-        target_source_df = wh_df if not wh_df.empty else df
+        base_source = wh_df if not wh_df.empty else (prod_df if not prod_df.empty else df)
         new_rows = []
         specific_data_map = {}
         if not df.empty and "Product Code" in df.columns:
@@ -188,8 +215,8 @@ def load_excel_data(filename, dept_name):
                 p_code = row.get("Product Code")
                 if pd.notna(p_code): specific_data_map[p_code] = row.to_dict()
 
-        if not target_source_df.empty:
-            for _, src_row in target_source_df.iterrows():
+        if not base_source.empty:
+            for _, src_row in base_source.iterrows():
                 p_code = src_row.get("Product Code", "")
                 avail = pd.to_numeric(src_row.get("Quantity Available", 0), errors='coerce')
                 req = pd.to_numeric(src_row.get("Quantity Required", 0), errors='coerce')
@@ -366,10 +393,10 @@ else:
     st.header(f"Motherson PKC - {menu}")
     
     if "Production" in menu:
-        st.markdown("🏭 **Production Requirements**: Automatically synchronized with Warehouse stock levels and statuses.")
+        st.markdown("🏭 **Production Requirements**: Changes made here automatically synchronize with Warehouse and cascade across all departments.")
         specific_cols = base_columns + ["Production Line", "Comments"]
     elif "Warehouse" in menu:
-        st.markdown("📦 **Warehouse Master Control**: Manage stock levels, **Daily Consumption**, **Lead Time**, **Safety Stock**, and auto-calculated **Reorder Points**.")
+        st.markdown("📦 **Warehouse Master Control**: Manage stock levels, quantities, and parameters. Synchronizes instantly with Production.")
         specific_cols = base_columns + ["Warehouse Location", "Comments"]
     elif "Procurement" in menu:
         st.markdown("🛒 **Procurement Escalations**: Items showing Low Stock, Last Box, or Shortage appear here automatically.")
@@ -440,7 +467,7 @@ else:
                 if "Estimated Stock-Out Date" in edited_df.columns: edited_df.at[idx, "Estimated Stock-Out Date"] = st_date
 
         save_to_github(edited_df, current_file, f"Motherson PKC Update: {menu}", file_sha)
-        st.success("✅ Changes successfully saved, recalculated with inventory formulas, and synchronized across departments!")
+        st.success("✅ Changes successfully saved, recalculated, and fully synchronized bi-directionally across all departments!")
         st.rerun()
 
     # Add form
