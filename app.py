@@ -86,7 +86,7 @@ def calculate_intelligence(row):
     
     return stock_status, priority, shortage, reorder_point, stock_out_date
 
-# Load data function with strict role separation (Production = Required, Warehouse = Available)
+# Function to load data with separated roles (Production = Required, Warehouse = Available + Notifications)
 def load_excel_data(filename, dept_name):
     try:
         file_content = repo.get_contents(filename)
@@ -94,7 +94,6 @@ def load_excel_data(filename, dept_name):
     except Exception:
         df = pd.DataFrame()
         
-    # Load both master files to merge Production Requirements and Warehouse Available Stocks
     prod_file = file_mapping["🏭 Production"]
     wh_file = file_mapping["📦 Warehouse"]
     
@@ -111,7 +110,6 @@ def load_excel_data(filename, dept_name):
     except Exception:
         pass
 
-    # Build unified mapping of Product Codes to aggregate Required (from Prod) and Available (from Wh)
     master_codes = set()
     if not prod_df.empty and "Product Code" in prod_df.columns:
         master_codes.update(prod_df["Product Code"].dropna().tolist())
@@ -120,20 +118,22 @@ def load_excel_data(filename, dept_name):
     if not df.empty and "Product Code" in df.columns:
         master_codes.update(df["Product Code"].dropna().tolist())
 
-    # Map details from respective dataframes
     prod_map = {r.get("Product Code"): r for _, r in prod_df.iterrows() if pd.notna(r.get("Product Code"))} if not prod_df.empty else {}
     wh_map = {r.get("Product Code"): r for _, r in wh_df.iterrows() if pd.notna(r.get("Product Code"))} if not wh_df.empty else {}
     current_map = {r.get("Product Code"): r for _, r in df.iterrows() if pd.notna(r.get("Product Code"))} if not df.empty else {}
 
     combined_rows = []
     for p_code in master_codes:
-        # Quantity Required primarily comes from Production
-        req = pd.to_numeric(prod_map.get(p_code, current_map.get(p_code, {})).get("Quantity Required", 0), errors='coerce')
-        # Quantity Available primarily comes from Warehouse
-        avail = pd.to_numeric(wh_map.get(p_code, current_map.get(p_code, {})).get("Quantity Available", 0), errors='coerce')
+        p_row = prod_map.get(p_code, current_map.get(p_code, {}))
+        w_row = wh_map.get(p_code, current_map.get(p_code, {}))
         
-        base_src = prod_map.get(p_code, wh_map.get(p_code, current_map.get(p_code, {})))
+        req = pd.to_numeric(p_row.get("Quantity Required", 100), errors='coerce')
+        avail = pd.to_numeric(w_row.get("Quantity Available", 50), errors='coerce')
         
+        base_src = p_row if dept_name == "🏭 Production" else w_row
+        if not base_src:
+            base_src = w_row if not w_row.empty else p_row
+            
         temp_dict = {
             "Quantity Available": avail, "Quantity Required": req,
             "Daily Consumption": base_src.get("Daily Consumption", 5),
@@ -142,16 +142,25 @@ def load_excel_data(filename, dept_name):
         }
         stock_status, priority, shortage, reorder_point, stock_out_date = calculate_intelligence(temp_dict)
 
+        # Notification message for Production based on Warehouse check
+        if stock_status in ["🔴 Shortage", "🔴 Last Box"]:
+            notif_status = f"🚨 ALERT: {stock_status} (Shortage: {shortage} units)"
+        elif stock_status == "🟠 Low Stock":
+            notif_status = "⚠️ WARNING: Low Stock Level"
+        else:
+            notif_status = "✅ Normal (Stock OK)"
+
         row_data = {
             "Alert ID": base_src.get("Alert ID", f"ALT-{p_code}"),
             "Date": base_src.get("Date", datetime.now().strftime("%Y-%m-%d")),
             "Product Code": p_code,
             "Product Description": base_src.get("Product Description", "None"),
-            "Quantity Available": avail,
             "Quantity Required": req,
+            "Quantity Available": avail,
             "Shortage Quantity": shortage,
             "Stock Status": stock_status,
             "Priority": priority,
+            "Warehouse Notification": notif_status,
             "Daily Consumption": base_src.get("Daily Consumption", 5),
             "Lead Time": base_src.get("Lead Time", 5),
             "Safety Stock": base_src.get("Safety Stock", 10),
@@ -159,15 +168,14 @@ def load_excel_data(filename, dept_name):
             "Estimated Stock-Out Date": stock_out_date,
             "Lifecycle Stage": base_src.get("Lifecycle Stage", "Alert Created"),
             "Last Updated": base_src.get("Last Updated", datetime.now().strftime("%Y-%m-%d %H:%M")),
-            "Production Line": base_src.get("Production Line", ""),
-            "Warehouse Location": base_src.get("Warehouse Location", ""),
+            "Production Line": p_row.get("Production Line", ""),
+            "Warehouse Location": w_row.get("Warehouse Location", ""),
             "Comments": base_src.get("Comments", "")
         }
         combined_rows.append(row_data)
 
     final_df = pd.DataFrame(combined_rows)
 
-    # Filter for Procurement / Transport if necessary
     if dept_name in ["🛒 Procurement", "🚚 Transport"]:
         final_df = final_df[final_df["Stock Status"] != "🟢 Normal Stock"]
 
@@ -221,10 +229,10 @@ else:
     st.header(f"Motherson PKC - {menu}")
     
     if "Production" in menu:
-        st.markdown("🏭 **Production Department**: Manage your **Quantity Required** and production parameters. Stock levels synchronize automatically from Warehouse.")
-        specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Required", "Quantity Available", "Shortage Quantity", "Stock Status", "Priority", "Production Line", "Last Updated", "Comments"]
+        st.markdown("🏭 **Production Department**: Manage your **Quantity Required**. You receive real-time Warehouse notifications and stock checks automatically.")
+        specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Required", "Warehouse Notification", "Production Line", "Last Updated", "Comments"]
     elif "Warehouse" in menu:
-        st.markdown("📦 **Warehouse Department**: Manage your **Quantity Available** (Stock). Requirements synchronize automatically from Production.")
+        st.markdown("📦 **Warehouse Department**: Manage stock levels (**Quantity Available**). Your updates instantly trigger notifications for Production.")
         specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Available", "Quantity Required", "Shortage Quantity", "Stock Status", "Priority", "Warehouse Location", "Last Updated", "Comments"]
     elif "Procurement" in menu:
         st.markdown("🛒 **Procurement Escalations**: Items needing immediate replenishment.")
@@ -241,23 +249,15 @@ else:
         current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         edited_df["Last Updated"] = current_time_str
         
-        # Recalculate metrics
-        for idx, r in edited_df.iterrows():
-            st_stat, prio, shortage, reorder_pt, st_date = calculate_intelligence(r)
-            edited_df.at[idx, "Shortage Quantity"] = shortage
-            edited_df.at[idx, "Stock Status"] = st_stat
-            edited_df.at[idx, "Priority"] = prio
-            edited_df.at[idx, "Reorder Point"] = reorder_pt
-            edited_df.at[idx, "Estimated Stock-Out Date"] = st_date
-
+        # Save current department changes
         save_to_github(edited_df, current_file, f"Update {menu}", file_sha)
         
-        # Also auto-update counterpart file to maintain full bi-directional data flow
+        # Synchronize counterparts between Production and Warehouse automatically
         if "Production" in menu or "Warehouse" in menu:
             other_menu = "📦 Warehouse" if "Production" in menu else "🏭 Production"
             other_file = file_mapping[other_menu]
             other_df, other_sha = load_excel_data(other_file, other_menu)
-            save_to_github(edited_df, other_file, f"Auto-sync from {menu}", other_sha)
+            save_to_github(other_df, other_file, f"Auto-sync from {menu}", other_sha)
             
-        st.success("✅ Changes saved and synchronized instantly across Production and Warehouse!")
+        st.success("✅ Changes saved and warehouse status notifications synchronized successfully!")
         st.rerun()
