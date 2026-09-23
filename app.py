@@ -82,8 +82,10 @@ def calculate_intelligence(row):
     
     reorder_point = (daily_cons * lead_time) + safety_stock
     
-    # Correct Shortage calculation showing exact difference (e.g. 50 - 230 = -180 for surplus, or positive if shortage)
+    # Correct Shortage calculation: Only positive values when available < required. If available > required, shortage is 0.
     shortage = req - avail
+    if shortage < 0:
+        shortage = 0.0
     
     if avail < req:
         stock_status = "🔴 Shortage"
@@ -196,7 +198,7 @@ def load_excel_data(filename, dept_name):
         stock_status, priority, shortage, reorder_point, reorder_status, stock_out_date = calculate_intelligence(temp_dict)
 
         if stock_status in ["🔴 Shortage", "🔴 Last Box"]:
-            notif_status = f"🚨 ALERT: {stock_status} (Shortage/Diff: {shortage} units)"
+            notif_status = f"🚨 ALERT: {stock_status} (Shortage: {shortage} units)"
         elif stock_status == "🟠 Low Stock":
             notif_status = "⚠️ WARNING: Low Stock Level"
         else:
