@@ -56,9 +56,9 @@ base_columns = [
     "Daily Consumption",  
     "Lead Time",          
     "Safety Stock",       
-    "Reorder Point",      # Calculated or managed: (Daily Consumption * Lead Time) + Safety Stock
+    "Reorder Point",      
     "Estimated Stock-Out Date",
-    "Lifecycle Stage",    # Alert Created -> Logistics Checked -> Procurement Ordered -> Transport Dispatched -> Delivered -> Closed
+    "Lifecycle Stage",    
     "Last Updated"
 ]
 
@@ -76,13 +76,12 @@ def calculate_intelligence(row):
     if pd.isna(lead_time): lead_time = 5
     if pd.isna(safety_stock): safety_stock = 10
     
-    # Reorder Point Formula = (Daily Consumption * Lead Time) + Safety Stock
     reorder_point = (daily_cons * lead_time) + safety_stock
     
     shortage = req - avail
     if shortage < 0: shortage = 0
     
-    # 1. Stock Status Logic
+    # Stock Status Logic
     if shortage > 0:
         stock_status = "🔴 Shortage"
     elif avail == 1:
@@ -92,7 +91,7 @@ def calculate_intelligence(row):
     else:
         stock_status = "🟢 Normal Stock"
         
-    # 2. Priority Logic
+    # Priority Logic
     if shortage > 0 or stock_status == "🔴 Shortage":
         priority = "🚨 Critical"
     elif stock_status == "🔴 Last Box":
@@ -102,13 +101,12 @@ def calculate_intelligence(row):
     else:
         priority = "🟢 Normal"
         
-    # 3. Estimated Stock-Out Date calculation
     days_left = int(avail / daily_cons) if daily_cons > 0 else 0
     stock_out_date = (datetime.now() + timedelta(days=days_left)).strftime("%Y-%m-%d") if avail > 0 else datetime.now().strftime("%Y-%m-%d")
     
     return stock_status, priority, shortage, reorder_point, stock_out_date
 
-# Function to load data with automatic cross-department pipeline synchronization
+# Function to load data with automatic cross-department pipeline synchronization (Warehouse is Master Control)
 def load_excel_data(filename, dept_name):
     try:
         file_content = repo.get_contents(filename)
@@ -117,27 +115,78 @@ def load_excel_data(filename, dept_name):
     except Exception:
         df = pd.DataFrame()
         
-    # 1. Load Warehouse data as the primary control source for Inventory Parameters
+    # Load Warehouse data as Master Source
     wh_file = file_mapping["📦 Warehouse"]
     wh_df = pd.DataFrame()
-    if dept_name != "📦 Warehouse":
-        try:
-            wh_content = repo.get_contents(wh_file)
-            wh_df = pd.read_excel(BytesIO(wh_content.decoded_content))
-        except Exception:
-            wh_df = pd.DataFrame()
+    try:
+        wh_content = repo.get_contents(wh_file)
+        wh_df = pd.read_excel(BytesIO(wh_content.decoded_content))
+    except Exception:
+        wh_df = pd.DataFrame()
 
-    # If loading Procurement or Transport, sync items only if they require attention (Low Stock, Last Box, or Shortage)
-    if dept_name in ["🛒 Procurement", "🚚 Transport"]:
+    # If loading Production or Warehouse, we synchronize master quantities from Warehouse
+    if dept_name in ["🏭 Production", "📦 Warehouse"] and not wh_df.empty:
+        if dept_name == "🏭 Production":
+            # Production mirrors Warehouse master quantities & parameters
+            new_rows = []
+            specific_data_map = {}
+            if not df.empty and "Product Code" in df.columns:
+                for _, row in df.iterrows():
+                    p_code = row.get("Product Code")
+                    if pd.notna(p_code): specific_data_map[p_code] = row.to_dict()
+
+            for _, src_row in wh_df.iterrows():
+                p_code = src_row.get("Product Code", "")
+                avail = pd.to_numeric(src_row.get("Quantity Available", 0), errors='coerce')
+                req = pd.to_numeric(src_row.get("Quantity Required", 0), errors='coerce')
+                daily_cons = pd.to_numeric(src_row.get("Daily Consumption", 5), errors='coerce')
+                lead_time = pd.to_numeric(src_row.get("Lead Time", 5), errors='coerce')
+                safety_stock = pd.to_numeric(src_row.get("Safety Stock", 10), errors='coerce')
+                
+                temp_dict = {
+                    "Quantity Available": avail, "Quantity Required": req,
+                    "Daily Consumption": daily_cons, "Lead Time": lead_time, "Safety Stock": safety_stock
+                }
+                stock_status, priority, shortage, reorder_point, stock_out_date = calculate_intelligence(temp_dict)
+
+                row_data = {
+                    "Alert ID": src_row.get("Alert ID", ""),
+                    "Date": src_row.get("Date", ""),
+                    "Product Code": p_code,
+                    "Product Description": src_row.get("Product Description", ""),
+                    "Quantity Available": avail,
+                    "Quantity Required": req,
+                    "Shortage Quantity": shortage,
+                    "Stock Status": stock_status,
+                    "Priority": priority,
+                    "Daily Consumption": daily_cons,
+                    "Lead Time": lead_time,
+                    "Safety Stock": safety_stock,
+                    "Reorder Point": reorder_point,
+                    "Estimated Stock-Out Date": stock_out_date,
+                    "Lifecycle Stage": src_row.get("Lifecycle Stage", "Alert Created"),
+                    "Last Updated": src_row.get("Last Updated", "")
+                }
+                
+                if p_code in specific_data_map:
+                    old_row = specific_data_map[p_code]
+                    for col in df.columns:
+                        if col not in row_data: row_data[col] = old_row.get(col, "")
+                else:
+                    row_data["Production Line"] = ""
+                    row_data["Comments"] = ""
+                new_rows.append(row_data)
+            df = pd.DataFrame(new_rows)
+
+    # If loading Procurement or Transport, filter only items requiring action (Low Stock, Last Box, Shortage)
+    elif dept_name in ["🛒 Procurement", "🚚 Transport"]:
         target_source_df = wh_df if not wh_df.empty else df
         new_rows = []
-        
         specific_data_map = {}
         if not df.empty and "Product Code" in df.columns:
             for _, row in df.iterrows():
                 p_code = row.get("Product Code")
-                if pd.notna(p_code): 
-                    specific_data_map[p_code] = row.to_dict()
+                if pd.notna(p_code): specific_data_map[p_code] = row.to_dict()
 
         if not target_source_df.empty:
             for _, src_row in target_source_df.iterrows():
@@ -149,15 +198,11 @@ def load_excel_data(filename, dept_name):
                 safety_stock = pd.to_numeric(src_row.get("Safety Stock", 10), errors='coerce')
                 
                 temp_dict = {
-                    "Quantity Available": avail,
-                    "Quantity Required": req,
-                    "Daily Consumption": daily_cons,
-                    "Lead Time": lead_time,
-                    "Safety Stock": safety_stock
+                    "Quantity Available": avail, "Quantity Required": req,
+                    "Daily Consumption": daily_cons, "Lead Time": lead_time, "Safety Stock": safety_stock
                 }
                 stock_status, priority, shortage, reorder_point, stock_out_date = calculate_intelligence(temp_dict)
 
-                # Filter condition: Only push to Procurement / Transport if stock requires action (Low Stock, Last Box, or Shortage)
                 if stock_status == "🟢 Normal Stock":
                     continue
 
@@ -183,8 +228,7 @@ def load_excel_data(filename, dept_name):
                 if p_code in specific_data_map:
                     old_row = specific_data_map[p_code]
                     for col in df.columns:
-                        if col not in row_data: 
-                            row_data[col] = old_row.get(col, "")
+                        if col not in row_data: row_data[col] = old_row.get(col, "")
                 else:
                     if "Procurement" in dept_name:
                         row_data["Supplier"] = ""
@@ -247,25 +291,16 @@ def save_to_github(dataframe, filename, message_text, file_sha):
     
     try:
         if file_sha:
-            repo.update_file(
-                path=filename,
-                message=message_text,
-                content=updated_excel,
-                sha=file_sha
-            )
+            repo.update_file(path=filename, message=message_text, content=updated_excel, sha=file_sha)
         else:
-            repo.create_file(
-                path=filename,
-                message=message_text,
-                content=updated_excel
-            )
+            repo.create_file(path=filename, message=message_text, content=updated_excel)
     except Exception as err:
         st.error(f"Error saving to GitHub: {err}")
 
 # --- 1. GENERAL DASHBOARD ---
 if menu == "📈 General Dashboard":
     st.header("📈 General Dashboard & Comprehensive Analytics")
-    st.markdown("Monitor inventory parameters, stock statuses (Normal, Low Stock, Last Box, Shortage), lead times, and end-to-end lifecycles.")
+    st.markdown("Monitor inventory parameters, stock statuses, lead times, and end-to-end lifecycles.")
     
     dfs = []
     for dept_name, fname in file_mapping.items():
@@ -276,7 +311,6 @@ if menu == "📈 General Dashboard":
     if dfs:
         global_df = pd.concat(dfs, ignore_index=True)
         
-        # Global Search Bar
         st.sidebar.markdown("---")
         st.sidebar.subheader("🔍 Global Search")
         search_query = st.sidebar.text_input("Search Product Code / Desc", "").strip().upper()
@@ -290,37 +324,27 @@ if menu == "📈 General Dashboard":
             st.dataframe(filtered_global, use_container_width=True)
             st.markdown("---")
 
-        # --- KPI Metrics Calculation ---
         unique_global = global_df.drop_duplicates(subset=["Product Code"])
         total_alerts = len(unique_global)
         shortages_count = len(unique_global[unique_global["Stock Status"] == "🔴 Shortage"]) if "Stock Status" in unique_global.columns else 0
         low_stock_count = len(unique_global[unique_global["Stock Status"] == "🟠 Low Stock"]) if "Stock Status" in unique_global.columns else 0
         last_box_count = len(unique_global[unique_global["Stock Status"] == "🔴 Last Box"]) if "Stock Status" in unique_global.columns else 0
         critical_count = len(unique_global[unique_global["Priority"] == "🚨 Critical"]) if "Priority" in unique_global.columns else 0
-        
         open_orders = len(global_df[global_df["Procurement Status"].isin(["Pending Procurement Approval", "PO Created / Ordered", "Shipped by Supplier"])]) if "Procurement Status" in global_df.columns else 0
         
         kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
-        with kpi_col1:
-            st.metric("Total Items Tracked", total_alerts)
-        with kpi_col2:
-            st.metric("Shortages", shortages_count, delta="Critical Action" if shortages_count > 0 else "OK", delta_color="inverse")
-        with kpi_col3:
-            st.metric("Low Stock", low_stock_count)
-        with kpi_col4:
-            st.metric("Last Box", last_box_count)
+        with kpi_col1: st.metric("Total Items Tracked", total_alerts)
+        with kpi_col2: st.metric("Shortages", shortages_count, delta="Critical Action" if shortages_count > 0 else "OK", delta_color="inverse")
+        with kpi_col3: st.metric("Low Stock", low_stock_count)
+        with kpi_col4: st.metric("Last Box", last_box_count)
             
         kpi_col5, kpi_col6, kpi_col7 = st.columns(3)
-        with kpi_col5:
-            st.metric("Critical Alerts", critical_count, delta="High Urgency" if critical_count > 0 else "Normal", delta_color="inverse")
-        with kpi_col6:
-            st.metric("Open POs / Orders", open_orders)
-        with kpi_col7:
-            st.metric("Inventory Health Rate", f"{max(0, 100 - (shortages_count*10))}%")
+        with kpi_col5: st.metric("Critical Alerts", critical_count, delta="High Urgency" if critical_count > 0 else "Normal", delta_color="inverse")
+        with kpi_col6: st.metric("Open POs / Orders", open_orders)
+        with kpi_col7: st.metric("Inventory Health Rate", f"{max(0, 100 - (shortages_count*10))}%")
             
         st.markdown("---")
         
-        # Export Excel Button
         st.subheader("📥 Export Intelligence Reports")
         output_excel = BytesIO()
         with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
@@ -333,23 +357,6 @@ if menu == "📈 General Dashboard":
             file_name=f"Motherson_PKC_Intelligence_Report_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        
-        st.markdown("---")
-        
-        # Visual Charts Section
-        if len(unique_global) > 0:
-            st.subheader("📊 Visual Analytics & Stock Status Breakdown")
-            col_ch1, col_ch2 = st.columns(2)
-            with col_ch1:
-                st.markdown("**Stock Status Distribution**")
-                if "Stock Status" in unique_global.columns:
-                    status_counts = unique_global["Stock Status"].value_counts()
-                    st.bar_chart(status_counts)
-            with col_ch2:
-                st.markdown("**Priority Breakdown**")
-                if "Priority" in unique_global.columns:
-                    priority_counts = unique_global["Priority"].value_counts()
-                    st.bar_chart(priority_counts)
 
 # --- 2. SPECIFIC DEPARTMENTS ---
 else:
@@ -359,13 +366,13 @@ else:
     st.header(f"Motherson PKC - {menu}")
     
     if "Production" in menu:
-        st.markdown("🏭 **Production Requirements**: Monitor production lines, required quantities, and automated status alerts.")
+        st.markdown("🏭 **Production Requirements**: Automatically synchronized with Warehouse stock levels and statuses.")
         specific_cols = base_columns + ["Production Line", "Comments"]
     elif "Warehouse" in menu:
         st.markdown("📦 **Warehouse Master Control**: Manage stock levels, **Daily Consumption**, **Lead Time**, **Safety Stock**, and auto-calculated **Reorder Points**.")
         specific_cols = base_columns + ["Warehouse Location", "Comments"]
     elif "Procurement" in menu:
-        st.markdown("🛒 **Procurement Escalations**: Items showing Low Stock, Last Box, or Shortage appear here automatically to launch Purchase Orders.")
+        st.markdown("🛒 **Procurement Escalations**: Items showing Low Stock, Last Box, or Shortage appear here automatically.")
         specific_cols = [
             "Alert ID", "Date", "Product Code", "Product Description", 
             "Quantity Available", "Quantity Required", "Shortage Quantity",
@@ -384,46 +391,24 @@ else:
         ]
     
     df_view = df[specific_cols]
-    
     column_configs = {}
     
-    # Dropdowns configs for interactive data editor
     if "Stock Status" in specific_cols:
-        valid_stock_statuses = ["🟢 Normal Stock", "🟠 Low Stock", "🔴 Last Box", "🔴 Shortage"]
-        column_configs["Stock Status"] = st.column_config.SelectboxColumn("Stock Status", options=valid_stock_statuses)
-        
+        column_configs["Stock Status"] = st.column_config.SelectboxColumn("Stock Status", options=["🟢 Normal Stock", "🟠 Low Stock", "🔴 Last Box", "🔴 Shortage"])
     if "Priority" in specific_cols:
-        valid_priorities = ["🟢 Normal", "🟠 Medium", "🔴 High", "🚨 Critical"]
-        column_configs["Priority"] = st.column_config.SelectboxColumn("Priority", options=valid_priorities)
-
+        column_configs["Priority"] = st.column_config.SelectboxColumn("Priority", options=["🟢 Normal", "🟠 Medium", "🔴 High", "🚨 Critical"])
     if "Procurement Status" in specific_cols:
-        valid_proc_statuses = [
-            "Pending Procurement Approval", 
-            "PO Created / Ordered", 
-            "Shipped by Supplier", 
-            "Received & Resolved", 
-            "Cancelled"
-        ]
+        valid_proc_statuses = ["Pending Procurement Approval", "PO Created / Ordered", "Shipped by Supplier", "Received & Resolved", "Cancelled"]
         df_view["Procurement Status"] = df_view["Procurement Status"].apply(lambda x: x if x in valid_proc_statuses else "Pending Procurement Approval")
         column_configs["Procurement Status"] = st.column_config.SelectboxColumn("Procurement Status", options=valid_proc_statuses, required=True)
-        
     if "Lifecycle Stage" in specific_cols:
-        valid_lifecycles = [
-            "Alert Created", 
-            "Logistics Checked", 
-            "Procurement Ordered", 
-            "Transport Dispatched", 
-            "Delivered", 
-            "Closed"
-        ]
+        valid_lifecycles = ["Alert Created", "Logistics Checked", "Procurement Ordered", "Transport Dispatched", "Delivered", "Closed"]
         df_view["Lifecycle Stage"] = df_view["Lifecycle Stage"].apply(lambda x: x if x in valid_lifecycles else "Alert Created")
         column_configs["Lifecycle Stage"] = st.column_config.SelectboxColumn("Lifecycle Stage", options=valid_lifecycles, required=True)
-
     if "Transport" in specific_cols:
         valid_transports = ["Air", "Sea", "Road", "Express"]
         df_view["Transport"] = df_view["Transport"].apply(lambda x: x if x in valid_transports else "Road")
         column_configs["Transport"] = st.column_config.SelectboxColumn("Transport Method", options=valid_transports, required=True)
-
     if "Transport Status" in specific_cols:
         valid_transport_statuses = ["In Transit", "Arrived at Factory", "Customs Clearance", "Delivered"]
         df_view["Transport Status"] = df_view["Transport Status"].apply(lambda x: x if x in valid_transport_statuses else "In Transit")
@@ -431,12 +416,7 @@ else:
 
     st.markdown("### 📋 Department Data Records & Parameters")
     
-    edited_df = st.data_editor(
-        df_view,
-        column_config=column_configs,
-        num_rows="dynamic",
-        key=f"{menu}_editor"
-    )
+    edited_df = st.data_editor(df_view, column_config=column_configs, num_rows="dynamic", key=f"{menu}_editor")
     
     col_btn1, _ = st.columns([1, 5])
     with col_btn1:
@@ -446,7 +426,6 @@ else:
         current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         edited_df["Last Updated"] = current_time_str
         
-        # Intelligent automatic recalculations on save
         if "Quantity Available" in edited_df.columns and "Quantity Required" in edited_df.columns:
             edited_df["Quantity Available"] = pd.to_numeric(edited_df["Quantity Available"], errors='coerce').fillna(0)
             edited_df["Quantity Required"] = pd.to_numeric(edited_df["Quantity Required"], errors='coerce').fillna(0)
@@ -455,14 +434,10 @@ else:
             
             for idx, r in edited_df.iterrows():
                 st_stat, prio, _, reorder_pt, st_date = calculate_intelligence(r)
-                if "Stock Status" in edited_df.columns:
-                    edited_df.at[idx, "Stock Status"] = st_stat
-                if "Priority" in edited_df.columns:
-                    edited_df.at[idx, "Priority"] = prio
-                if "Reorder Point" in edited_df.columns:
-                    edited_df.at[idx, "Reorder Point"] = reorder_pt
-                if "Estimated Stock-Out Date" in edited_df.columns:
-                    edited_df.at[idx, "Estimated Stock-Out Date"] = st_date
+                if "Stock Status" in edited_df.columns: edited_df.at[idx, "Stock Status"] = st_stat
+                if "Priority" in edited_df.columns: edited_df.at[idx, "Priority"] = prio
+                if "Reorder Point" in edited_df.columns: edited_df.at[idx, "Reorder Point"] = reorder_pt
+                if "Estimated Stock-Out Date" in edited_df.columns: edited_df.at[idx, "Estimated Stock-Out Date"] = st_date
 
         save_to_github(edited_df, current_file, f"Motherson PKC Update: {menu}", file_sha)
         st.success("✅ Changes successfully saved, recalculated with inventory formulas, and synchronized across departments!")
@@ -472,21 +447,16 @@ else:
     with st.form(f"add_form_{menu}"):
         st.subheader(f"➕ Add New Entry to {menu}")
         f_col1, f_col2 = st.columns(2)
-        with f_col1:
-            prod_code = st.text_input("Product Code", "")
-        with f_col2:
-            prod_desc = st.text_input("Product Description", "")
+        with f_col1: prod_code = st.text_input("Product Code", "")
+        with f_col2: prod_desc = st.text_input("Product Description", "")
         
         extra_val = ""
         extra_val_transport = ""
         extra_transport_status = "In Transit"
         
-        if "Production" in menu:
-            extra_val = st.text_input("Production Line", "")
-        elif "Warehouse" in menu:
-            extra_val = st.text_input("Warehouse Location", "")
-        elif "Procurement" in menu:
-            extra_val = st.text_input("Supplier", "")
+        if "Production" in menu: extra_val = st.text_input("Production Line", "")
+        elif "Warehouse" in menu: extra_val = st.text_input("Warehouse Location", "")
+        elif "Procurement" in menu: extra_val = st.text_input("Supplier", "")
         elif "Transport" in menu:
             extra_val = st.selectbox("Transport Method", ["Air", "Sea", "Road", "Express"])
             extra_val_transport = st.text_input("Truck Number", "")
@@ -509,15 +479,13 @@ else:
             new_row["Daily Consumption"] = 10
             new_row["Lead Time"] = 5
             new_row["Safety Stock"] = 10
-            new_row["Reorder Point"] = 60 # (10*5)+10
+            new_row["Reorder Point"] = 60
             new_row["Estimated Stock-Out Date"] = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
             new_row["Lifecycle Stage"] = "Alert Created"
             new_row["Last Updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
             
-            if "Production" in menu:
-                new_row["Production Line"] = extra_val
-            elif "Warehouse" in menu:
-                new_row["Warehouse Location"] = extra_val
+            if "Production" in menu: new_row["Production Line"] = extra_val
+            elif "Warehouse" in menu: new_row["Warehouse Location"] = extra_val
             elif "Procurement" in menu:
                 new_row["Supplier"] = extra_val
                 new_row["Purchase Order"] = ""
