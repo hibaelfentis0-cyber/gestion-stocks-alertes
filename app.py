@@ -42,7 +42,7 @@ file_mapping = {
     "🚚 Transport": "04_Transport_Delivery_Stock_Alert.xlsx"
 }
 
-# Common base columns for all departments
+# Common base columns for Production & Warehouse
 base_columns = [
     "Alert ID", 
     "Date", 
@@ -131,25 +131,36 @@ def load_excel_data(filename, dept_name):
                         row_data["Purchase Order"] = ""
                         row_data["Order Date"] = ""
                         row_data["ETA"] = ""
-                        row_data["Purchasing Status"] = "Pending"
+                        row_data["Procurement Status"] = "Pending Procurement Approval"
                         row_data["Comments"] = ""
                     elif "Transport" in dept_name:
                         row_data["Transport"] = "Road"
                         row_data["Truck Number"] = ""
+                        row_data["Transport Status"] = "In Transit"
                         row_data["Comments"] = ""
                         
                 new_rows.append(row_data)
             df = pd.DataFrame(new_rows)
             
-    # Ensure all required columns exist
+    # Ensure all required columns exist per department
     if dept_name == "🏭 Production":
         cols = base_columns + ["Production Line", "Comments"]
     elif "Warehouse" in dept_name:
         cols = base_columns + ["Warehouse Location", "Comments"]
     elif "Procurement" in dept_name:
-        cols = base_columns + ["Supplier", "Purchase Order", "Order Date", "ETA", "Purchasing Status", "Comments"]
+        # Procurement base columns without Workflow Status, replaced by Procurement Status
+        cols = [
+            "Alert ID", "Date", "Product Code", "Product Description", 
+            "Quantity Available", "Quantity Required", "Shortage Quantity",
+            "Supplier", "Purchase Order", "Order Date", "ETA", "Procurement Status", "Last Updated", "Comments"
+        ]
     elif "Transport" in dept_name:
-        cols = base_columns + ["Transport", "Truck Number", "Comments"]
+        # Transport base columns without Workflow Status, with Transport Status added
+        cols = [
+            "Alert ID", "Date", "Product Code", "Product Description", 
+            "Quantity Available", "Quantity Required", "Shortage Quantity",
+            "Transport", "Truck Number", "Transport Status", "Last Updated", "Comments"
+        ]
     else:
         cols = base_columns + ["Comments"]
         
@@ -285,23 +296,42 @@ else:
         specific_cols = base_columns + ["Warehouse Location", "Comments"]
     elif "Procurement" in menu:
         st.markdown("🛒 **Active Escalations Only**: Only items with active shortages (Shortage > 0) are displayed here for purchasing.")
-        specific_cols = base_columns + ["Supplier", "Purchase Order", "Order Date", "ETA", "Purchasing Status", "Comments"]
+        specific_cols = [
+            "Alert ID", "Date", "Product Code", "Product Description", 
+            "Quantity Available", "Quantity Required", "Shortage Quantity",
+            "Supplier", "Purchase Order", "Order Date", "ETA", "Procurement Status", "Last Updated", "Comments"
+        ]
     elif "Transport" in menu:
         st.markdown("🚚 **Active Shipments Only**: Only items requiring delivery coordination are displayed here.")
-        specific_cols = base_columns + ["Transport", "Truck Number", "Comments"]
+        specific_cols = [
+            "Alert ID", "Date", "Product Code", "Product Description", 
+            "Quantity Available", "Quantity Required", "Shortage Quantity",
+            "Transport", "Truck Number", "Transport Status", "Last Updated", "Comments"
+        ]
     
     df_view = df[specific_cols]
     
     column_configs = {}
-    if "Purchasing Status" in specific_cols:
-        valid_statuses = ["Pending", "Ordered", "Shipped", "Delivered", "Cancelled"]
-        df_view["Purchasing Status"] = df_view["Purchasing Status"].apply(lambda x: x if x in valid_statuses else "Pending")
-        column_configs["Purchasing Status"] = st.column_config.SelectboxColumn("Purchasing Status", options=valid_statuses, required=True)
+    if "Procurement Status" in specific_cols:
+        valid_proc_statuses = [
+            "Pending Procurement Approval", 
+            "PO Created / Ordered", 
+            "Shipped by Supplier", 
+            "Received & Resolved", 
+            "Cancelled"
+        ]
+        df_view["Procurement Status"] = df_view["Procurement Status"].apply(lambda x: x if x in valid_proc_statuses else "Pending Procurement Approval")
+        column_configs["Procurement Status"] = st.column_config.SelectboxColumn("Procurement Status", options=valid_proc_statuses, required=True)
         
     if "Transport" in specific_cols:
         valid_transports = ["Air", "Sea", "Road", "Express"]
         df_view["Transport"] = df_view["Transport"].apply(lambda x: x if x in valid_transports else "Road")
         column_configs["Transport"] = st.column_config.SelectboxColumn("Transport Method", options=valid_transports, required=True)
+
+    if "Transport Status" in specific_cols:
+        valid_transport_statuses = ["In Transit", "Arrived at Factory", "Customs Clearance", "Delivered"]
+        df_view["Transport Status"] = df_view["Transport Status"].apply(lambda x: x if x in valid_transport_statuses else "In Transit")
+        column_configs["Transport Status"] = st.column_config.SelectboxColumn("Transport Status", options=valid_transport_statuses, required=True)
 
     st.markdown("### 📋 Department Data Records")
     
@@ -320,19 +350,20 @@ else:
         current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         edited_df["Last Updated"] = current_time_str
         
-        # Automatic Shortage and Workflow Status recalculation on save
+        # Automatic Shortage and Workflow Status recalculation on save (for production/warehouse)
         if "Quantity Available" in edited_df.columns and "Quantity Required" in edited_df.columns:
             edited_df["Quantity Available"] = pd.to_numeric(edited_df["Quantity Available"], errors='coerce').fillna(0)
             edited_df["Quantity Required"] = pd.to_numeric(edited_df["Quantity Required"], errors='coerce').fillna(0)
             edited_df["Shortage Quantity"] = edited_df["Quantity Required"] - edited_df["Quantity Available"]
             edited_df["Shortage Quantity"] = edited_df["Shortage Quantity"].apply(lambda x: x if x > 0 else 0)
-            edited_df["Workflow Status"] = edited_df["Shortage Quantity"].apply(lambda x: "⚠️ Escalate to Procurement" if x > 0 else "✅ OK (Resolved in Warehouse)")
+            if "Workflow Status" in edited_df.columns:
+                edited_df["Workflow Status"] = edited_df["Shortage Quantity"].apply(lambda x: "⚠️ Escalate to Procurement" if x > 0 else "✅ OK (Resolved in Warehouse)")
 
         save_to_github(edited_df, current_file, f"Motherson PKC Update: {menu}", file_sha)
         st.success("✅ Changes successfully saved, recalculated, and synchronized!")
         st.rerun()
 
-    # Add form (Mainly useful in Production)
+    # Add form
     with st.form(f"add_form_{menu}"):
         st.subheader(f"➕ Add New Entry to {menu}")
         f_col1, f_col2 = st.columns(2)
@@ -343,6 +374,7 @@ else:
         
         extra_val = ""
         extra_val_transport = ""
+        extra_transport_status = "In Transit"
         
         if "Production" in menu:
             extra_val = st.text_input("Production Line", "")
@@ -353,6 +385,7 @@ else:
         elif "Transport" in menu:
             extra_val = st.selectbox("Transport Method", ["Air", "Sea", "Road", "Express"])
             extra_val_transport = st.text_input("Truck Number", "")
+            extra_transport_status = st.selectbox("Transport Status", ["In Transit", "Arrived at Factory", "Customs Clearance", "Delivered"])
             
         submit_add = st.form_submit_button("🚀 Add and Sync to GitHub")
         
@@ -366,7 +399,8 @@ else:
             new_row["Quantity Available"] = 0
             new_row["Quantity Required"] = 100
             new_row["Shortage Quantity"] = 100
-            new_row["Workflow Status"] = "⚠️ Escalate to Procurement"
+            if "Workflow Status" in new_row.columns:
+                new_row["Workflow Status"] = "⚠️ Escalate to Procurement"
             new_row["Last Updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
             
             if "Production" in menu:
@@ -378,10 +412,11 @@ else:
                 new_row["Purchase Order"] = ""
                 new_row["Order Date"] = ""
                 new_row["ETA"] = ""
-                new_row["Purchasing Status"] = "Pending"
+                new_row["Procurement Status"] = "Pending Procurement Approval"
             elif "Transport" in menu:
                 new_row["Transport"] = extra_val
                 new_row["Truck Number"] = extra_val_transport
+                new_row["Transport Status"] = extra_transport_status
                 
             updated_df = pd.concat([df_current, new_row], ignore_index=True)
             save_to_github(updated_df, current_file, f"Motherson PKC Add row in {menu}", file_sha)
