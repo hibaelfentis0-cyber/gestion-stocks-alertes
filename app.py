@@ -81,10 +81,11 @@ def calculate_intelligence(row):
     if daily_cons <= 0: daily_cons = 1.0
     
     reorder_point = (daily_cons * lead_time) + safety_stock
-    shortage = req - avail
-    if shortage < 0: shortage = 0
     
-    if shortage > 0:
+    # Correct Shortage calculation showing exact difference (e.g. 50 - 230 = -180 for surplus, or positive if shortage)
+    shortage = req - avail
+    
+    if avail < req:
         stock_status = "🔴 Shortage"
     elif avail == 1:
         stock_status = "🔴 Last Box"
@@ -93,7 +94,7 @@ def calculate_intelligence(row):
     else:
         stock_status = "🟢 Normal Stock"
         
-    if shortage > 0 or stock_status == "🔴 Shortage":
+    if avail < req or stock_status == "🔴 Shortage":
         priority = "🚨 Critical"
     elif stock_status == "🔴 Last Box":
         priority = "🔴 High"
@@ -195,7 +196,7 @@ def load_excel_data(filename, dept_name):
         stock_status, priority, shortage, reorder_point, reorder_status, stock_out_date = calculate_intelligence(temp_dict)
 
         if stock_status in ["🔴 Shortage", "🔴 Last Box"]:
-            notif_status = f"🚨 ALERT: {stock_status} (Shortage: {shortage} units)"
+            notif_status = f"🚨 ALERT: {stock_status} (Shortage/Diff: {shortage} units)"
         elif stock_status == "🟠 Low Stock":
             notif_status = "⚠️ WARNING: Low Stock Level"
         else:
@@ -239,7 +240,7 @@ def load_excel_data(filename, dept_name):
 
     if dept_name in ["🛒 Procurement", "🚚 Transport"]:
         if "Stock Status" in final_df.columns:
-            final_df = final_df[final_df["Stock Status"] != "🟢 Normal Stock"]
+            final_df = final_df[final_df["Stock Status"].isin(["🔴 Shortage", "🔴 Last Box", "🟠 Low Stock"])]
 
     try:
         fc = repo.get_contents(filename)
@@ -262,7 +263,7 @@ def save_to_github(dataframe, filename, message_text, file_sha):
     except Exception as err:
         st.error(f"Error saving to GitHub: {err}")
 
-# --- 2. DASHBOARD (Without Master Table and Executive Insights, with Department Breakdown Chart) ---
+# --- 2. DASHBOARD ---
 if menu == "📈 General Dashboard":
     st.header("📈 General Dashboard & Departmental Analytics")
     st.markdown("Professional overview of inventory health, stock alerts, and shortage volumes across each department.")
@@ -326,14 +327,12 @@ if menu == "📈 General Dashboard":
     with k6: st.metric("Delayed Deliveries", delayed_deliv_all)
     
     st.markdown("---")
-    
-    # Chart showing Total Alerts and Shortage Quantities per Department
     st.markdown("### 📊 Departmental Alerts & Shortage Volumes Breakdown")
     if dept_stats:
         chart_df = pd.DataFrame(dept_stats).set_index("Department")
         st.bar_chart(chart_df)
 
-# --- 3. SPECIFIC DEPARTMENTS (Table First, Search & Add Below) ---
+# --- 3. SPECIFIC DEPARTMENTS ---
 else:
     current_file = file_mapping[menu]
     df, file_sha = load_excel_data(current_file, menu)
@@ -363,7 +362,6 @@ else:
         mask = df_view.apply(lambda row: row.astype(str).str.contains(global_search_query, case=False).any(), axis=1)
         df_view = df_view[mask]
 
-    # Session state for local department search filter
     search_key = f"search_{menu}"
     if search_key not in st.session_state:
         st.session_state[search_key] = ""
