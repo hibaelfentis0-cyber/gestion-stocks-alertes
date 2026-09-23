@@ -1,4 +1,4 @@
- import streamlit as st
+import streamlit as st
 from github import Github
 import pandas as pd
 from io import BytesIO
@@ -118,7 +118,6 @@ def calculate_intelligence(row):
     
     return stock_status, priority, shortage, reorder_point, reorder_status, stock_out_date
 
-# Sort dataframe by priority order (Critical/Shortage -> Last Unit -> Low Stock -> Normal)
 def sort_dataframe_by_priority(df):
     if df.empty or "Stock Status" not in df.columns:
         return df
@@ -134,7 +133,7 @@ def sort_dataframe_by_priority(df):
     df = df.sort_values(by=["_sort_rank", "Shortage Quantity"], ascending=[True, False]).drop(columns=["_sort_rank"])
     return df.reset_index(drop=True)
 
-# Safe data loader to prevent crashes and ensure complete synchronization
+# Safe data loader to prevent crashes
 def load_excel_data(filename, dept_name):
     try:
         file_content = repo.get_contents(filename)
@@ -293,7 +292,7 @@ st.title("🏢 Motherson PKC — Stock Alert & Supply Chain Management System")
 st.markdown("A centralized enterprise system for real-time inventory monitoring, shortage tracking, and cross-departmental coordination.")
 st.markdown("---")
 
-# --- 2. GENERAL DASHBOARD WITH GRAPHIC SYMBOLS ---
+# --- 2. GENERAL DASHBOARD ---
 if menu == "📈 General Dashboard":
     st.header("📈 Enterprise General Dashboard & Analytics")
     st.markdown("Real-time visual health indicators, inventory metrics, and sorted priority alerts across all departments.")
@@ -335,7 +334,6 @@ if menu == "📈 General Dashboard":
             "Reorders Required": d_reorder
         })
 
-    # Graphic Dashboard Metrics Layout
     st.markdown("### 📊 Key Performance Indicators (KPIs)")
     k1, k2, k3 = st.columns(3)
     with k1: 
@@ -349,18 +347,12 @@ if menu == "📈 General Dashboard":
         st.metric("🚚 Pending Shipments", total_active_all, delta="On Schedule", delta_color="normal")
 
     st.markdown("---")
-    
-    # Status Breakdown Metrics with Graphic Symbols
-    st.markdown("### 🚦 Inventory Status Health Breakdown (Sorted by Priority)")
+    st.markdown("### 🚦 Inventory Status Health Breakdown")
     s1, s2, s3, s4 = st.columns(4)
-    with s1:
-        st.metric("🟢 Optimal Stock", f"{total_alerts_all - total_active_all} Items")
-    with s2:
-        st.metric("🟠 Low Stock Warning", f"{low_stock_all} Items")
-    with s3:
-        st.metric("🔴 Last Unit Alert", f"{last_unit_all} Items")
-    with s4:
-        st.metric("🚨 Critical Shortage", f"{critical_alerts_all} Items")
+    with s1: st.metric("🟢 Optimal Stock", f"{total_alerts_all - total_active_all} Items")
+    with s2: st.metric("🟠 Low Stock Warning", f"{low_stock_all} Items")
+    with s3: st.metric("🔴 Last Unit Alert", f"{last_unit_all} Items")
+    with s4: st.metric("🚨 Critical Shortage", f"{critical_alerts_all} Items")
     
     st.markdown("---")
     st.markdown("### 📈 Departmental Shortage Volume & Alert Distribution")
@@ -376,7 +368,7 @@ else:
     st.header(f"Motherson PKC — {menu}")
     
     if "Production" in menu:
-        st.markdown("🏭 **Production Department**: Manage your **Quantity Required**. Real-time shortage calculations and notifications enabled.")
+        st.markdown("🏭 **Production Department**: Manage your **Quantity Required**. Real-time shortage calculations enabled.")
         specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Required", "Warehouse Notification", "Production Line", "Last Updated", "Comments"]
     elif "Warehouse" in menu:
         st.markdown("📦 **Warehouse Operations**: Control available stocks, consumption rates, safety limits, and automatic reorder triggers.")
@@ -408,9 +400,8 @@ else:
 
     df_view = sort_dataframe_by_priority(df_view)
 
-    # --- 1. EDIT TABLE FIRST ---
-    st.markdown("### ✏️ Edit Department Records (Sorted by Priority)")
-    
+    # --- EDIT TABLE ---
+    st.markdown("### ✏️ Edit Department Records")
     edited_df = st.data_editor(
         df_view, 
         num_rows="dynamic", 
@@ -442,12 +433,12 @@ else:
                 other_df, other_sha = load_excel_data(other_file, other_menu)
                 save_to_github(other_df, other_file, f"Full system sync from {menu}", other_sha)
             
-        st.success("✅ Changes saved and synchronized across all department logs successfully!")
+        st.success("✅ Changes saved and synchronized successfully!")
         st.rerun()
 
     st.markdown("---")
 
-    # --- 2. SEARCH & FILTER BELOW THE TABLE ---
+    # --- SEARCH & EXPORT ---
     col_search, col_export = st.columns([3, 1])
     with col_search:
         st.markdown("### 🔍 Search & Filter Records")
@@ -466,7 +457,7 @@ else:
 
     st.markdown("---")
 
-    # --- 3. ADD NEW ENTRY & DELETE ENTRY ---
+    # --- ADD & DELETE SECTIONS ---
     col_add, col_del = st.columns(2)
     
     with col_add:
@@ -498,13 +489,12 @@ else:
     with col_del:
         with st.expander(f"🗑️ Delete Product Entry from {menu}"):
             with st.form(key=f"del_form_{menu}"):
-                product_list = df["Product Code"].tolist() if "Product Code" in df.columns else []
-                target_to_delete = st.selectbox("Select Product Code to Delete:", options=product_list)
+                product_list = df["Product Code"].dropna().astype(str).tolist() if "Product Code" in df.columns else []
+                target_to_delete = st.selectbox("Select Product Code to Delete:", options=product_list if product_list else [""])
                 
                 submit_del = st.form_submit_button("Delete Product")
                 if submit_del and target_to_delete:
-                    df = df[df["Product Code"] != target_to_delete]
+                    df = df[df["Product Code"].astype(str) != str(target_to_delete)]
                     save_to_github(df, current_file, f"Delete product {target_to_delete} from {menu}", file_sha)
                     st.success(f"Product {target_to_delete} deleted successfully!")
                     st.rerun()
-
