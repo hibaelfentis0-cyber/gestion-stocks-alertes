@@ -50,7 +50,7 @@ def convert_df_to_excel(df):
     processed_data = output.getvalue()
     return processed_data
 
-# Helper function to calculate Smart Stock Status, Reorder Point & Priority automatically
+# Helper function to calculate Smart Stock Status, Reorder Point, Priority & Stock-Out Date
 def calculate_intelligence(row):
     try:
         avail = float(row.get("Quantity Available", 0))
@@ -59,7 +59,7 @@ def calculate_intelligence(row):
     try:
         req = float(row.get("Quantity Required", 0))
     except:
-        req = 0.0
+        req = 100.0
     try:
         daily_cons = float(row.get("Daily Consumption", 5))
     except:
@@ -79,7 +79,7 @@ def calculate_intelligence(row):
     shortage = req - avail
     if shortage < 0: shortage = 0
     
-    # Stock Status Logic
+    # --- Stock Status Intelligent ---
     if shortage > 0:
         stock_status = "🔴 Shortage"
     elif avail == 1:
@@ -89,7 +89,7 @@ def calculate_intelligence(row):
     else:
         stock_status = "🟢 Normal Stock"
         
-    # Priority Logic
+    # --- Priority Logic ---
     if shortage > 0 or stock_status == "🔴 Shortage":
         priority = "🚨 Critical"
     elif stock_status == "🔴 Last Box":
@@ -209,18 +209,23 @@ def load_excel_data(filename, dept_name):
             "Safety Stock": temp_dict["Safety Stock"],
             "Reorder Point": reorder_point,
             "Estimated Stock-Out Date": stock_out_date,
-            "Lifecycle Stage": base_src.get("Lifecycle Stage", "Alert Created"),
+            "Lifecycle Stage": base_src.get("Lifecycle Stage", "Alert created"),
             "Last Updated": base_src.get("Last Updated", datetime.now().strftime("%Y-%m-%d %H:%M")),
             "Production Line": p_row.get("Production Line", "") if isinstance(p_row, dict) else "",
             "Warehouse Location": w_row.get("Warehouse Location", "") if isinstance(w_row, dict) else "",
             "Comments": base_src.get("Comments", "")
         }
         
-        if "Supplier" in base_src: row_data["Supplier"] = base_src.get("Supplier", "")
-        if "Procurement Status" in base_src: row_data["Procurement Status"] = base_src.get("Procurement Status", "Pending Procurement Approval")
-        if "Transport" in base_src: row_data["Transport"] = base_src.get("Transport", "Road")
-        if "Truck Number" in base_src: row_data["Truck Number"] = base_src.get("Truck Number", "")
-        if "Transport Status" in base_src: row_data["Transport Status"] = base_src.get("Transport Status", "In Transit")
+        # Procurement fields
+        row_data["Supplier"] = base_src.get("Supplier", "Default Supplier")
+        row_data["Order Date"] = base_src.get("Order Date", datetime.now().strftime("%Y-%m-%d"))
+        row_data["Expected Delivery Date"] = base_src.get("Expected Delivery Date", (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d"))
+        row_data["PO Number"] = base_src.get("PO Number", f"PO-{p_code}")
+        
+        # Transport fields
+        row_data["Transport"] = base_src.get("Transport", "Road")
+        row_data["Truck Number"] = base_src.get("Truck Number", "")
+        row_data["Transport Status"] = base_src.get("Transport Status", "In Transit")
 
         combined_rows.append(row_data)
 
@@ -264,38 +269,38 @@ if menu == "📈 General Dashboard":
         global_df = pd.concat(dfs, ignore_index=True).drop_duplicates(subset=["Product Code"])
         total_alerts = len(global_df)
         shortages_count = len(global_df[global_df["Stock Status"] == "🔴 Shortage"]) if "Stock Status" in global_df.columns else 0
+        last_box_count = len(global_df[global_df["Stock Status"] == "🔴 Last Box"]) if "Stock Status" in global_df.columns else 0
         low_stock_count = len(global_df[global_df["Stock Status"] == "🟠 Low Stock"]) if "Stock Status" in global_df.columns else 0
         normal_count = len(global_df[global_df["Stock Status"] == "🟢 Normal Stock"]) if "Stock Status" in global_df.columns else 0
         
-        # Extended professional metrics
-        k1, k2, k3, k4 = st.columns(4)
-        with k1: st.metric("Total Items Tracked", total_alerts)
+        # Extended professional metrics including Last Box
+        k1, k2, k3, k4, k5 = st.columns(5)
+        with k1: st.metric("Total Items", total_alerts)
         with k2: st.metric("🔴 Shortages", shortages_count)
-        with k3: st.metric("🟠 Low Stocks", low_stock_count)
-        with k4: st.metric("Health Rate", f"{max(0, int((normal_count / total_alerts) * 100))}%" if total_alerts > 0 else "0%")
+        with k3: st.metric("🔴 Last Box", last_box_count)
+        with k4: st.metric("🟠 Low Stocks", low_stock_count)
+        with k5: st.metric("Health Rate", f"{max(0, int((normal_count / total_alerts) * 100))}%" if total_alerts > 0 else "0%")
         
         st.markdown("---")
         col_chart, col_insights = st.columns([2, 1])
         
         with col_chart:
-            st.markdown("### 📊 Stock Status Distribution")
+            st.markdown("### 📊 Intelligent Stock Status Distribution")
             chart_data = pd.DataFrame({
-                "Status": ["Shortage", "Low Stock", "Normal Stock"],
-                "Count": [shortages_count, low_stock_count, normal_count]
+                "Status": ["Shortage", "Last Box", "Low Stock", "Normal Stock"],
+                "Count": [shortages_count, last_box_count, low_stock_count, normal_count]
             }).set_index("Status")
             st.bar_chart(chart_data)
             
         with col_insights:
             st.markdown("### 💡 Executive Insights")
-            if shortages_count > 0:
-                st.error(f"⚠️ **Attention Required**: There are {shortages_count} critical shortages affecting production lines immediately!")
+            if shortages_count > 0 or last_box_count > 0:
+                st.error(f"⚠️ **Urgent Action**: {shortages_count + last_box_count} items require immediate attention (Shortage or Last Box)!")
             else:
-                st.success("✅ **Operations Stable**: All inventory levels are currently healthy and operating smoothly.")
-            st.info("ℹ️ Use the sidebar to navigate to specific department workflows (Production, Warehouse, Procurement, Transport).")
+                st.success("✅ **Operations Stable**: All inventory levels are healthy.")
+            st.info("ℹ️ Select a specific department from the sidebar to update stock, place orders, or advance lifecycle stages.")
 
         st.markdown("### 📋 Global Master Data Table")
-        
-        # Export Button for Global Data
         excel_data = convert_df_to_excel(global_df)
         st.download_button(
             label="📥 Download Global Master Data as Excel",
@@ -303,10 +308,9 @@ if menu == "📈 General Dashboard":
             file_name="Motherson_Global_Stock_Report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        
         st.dataframe(global_df, use_container_width=True)
 
-# --- 2. SPECIFIC DEPARTMENTS (With Search, Add Item & Export) ---
+# --- 2. SPECIFIC DEPARTMENTS ---
 else:
     current_file = file_mapping[menu]
     df, file_sha = load_excel_data(current_file, menu)
@@ -314,17 +318,17 @@ else:
     st.header(f"Motherson PKC - {menu}")
     
     if "Production" in menu:
-        st.markdown("🏭 **Production Department**: Manage your **Quantity Required**. You receive real-time Warehouse notifications and stock checks automatically.")
-        specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Required", "Warehouse Notification", "Production Line", "Last Updated", "Comments"]
+        st.markdown("🏭 **Production Department**: Manage your **Quantity Required**. Real-time notifications and stock checks enabled.")
+        specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Required", "Warehouse Notification", "Production Line", "Lifecycle Stage", "Last Updated", "Comments"]
     elif "Warehouse" in menu:
-        st.markdown("📦 **Warehouse Department**: Manage stock levels (**Quantity Available**). Your updates instantly trigger notifications for Production.")
-        specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Available", "Quantity Required", "Shortage Quantity", "Stock Status", "Priority", "Warehouse Location", "Last Updated", "Comments"]
+        st.markdown("📦 **Warehouse Department**: Manage stock levels (**Quantity Available**), safety stock, and lead times.")
+        specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Available", "Quantity Required", "Shortage Quantity", "Stock Status", "Priority", "Reorder Point", "Estimated Stock-Out Date", "Warehouse Location", "Lifecycle Stage", "Last Updated", "Comments"]
     elif "Procurement" in menu:
-        st.markdown("🛒 **Procurement Escalations**: Items needing immediate replenishment.")
-        specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Available", "Quantity Required", "Shortage Quantity", "Stock Status", "Priority", "Supplier", "Procurement Status", "Last Updated"]
+        st.markdown("🛒 **Procurement Escalations**: Manage supplier parameters, PO numbers, order dates, and expected deliveries.")
+        specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Available", "Quantity Required", "Shortage Quantity", "Stock Status", "Priority", "Supplier", "Lead Time", "Order Date", "Expected Delivery Date", "PO Number", "Lifecycle Stage", "Last Updated"]
     else:
-        st.markdown("🚚 **Transport Tracking**")
-        specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Available", "Quantity Required", "Shortage Quantity", "Stock Status", "Priority", "Transport", "Transport Status", "Last Updated"]
+        st.markdown("🚚 **Transport Tracking**: Monitor transport routes, truck numbers, and dispatch statuses.")
+        specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Available", "Quantity Required", "Shortage Quantity", "Stock Status", "Priority", "Transport", "Truck Number", "Transport Status", "Lifecycle Stage", "Last Updated"]
 
     for col in specific_cols:
         if col not in df.columns:
@@ -332,7 +336,7 @@ else:
 
     df_view = df[specific_cols]
 
-    # --- Search / Filter Section & Export Button ---
+    # --- Search / Filter & Export ---
     col_search, col_export = st.columns([3, 1])
     with col_search:
         st.markdown("### 🔍 Search & Filter")
@@ -372,6 +376,7 @@ else:
                 new_row["Product Description"] = new_pdesc
                 if "Quantity Required" in new_row: new_row["Quantity Required"] = new_qty
                 if "Quantity Available" in new_row: new_row["Quantity Available"] = new_qty
+                new_row["Lifecycle Stage"] = "Alert created"
                 new_row["Last Updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                 
                 df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
@@ -379,8 +384,32 @@ else:
                 st.success(f"Product {new_pcode} added successfully!")
                 st.rerun()
 
-    # --- Data Editor ---
-    edited_df = st.data_editor(df_view, num_rows="dynamic", key=f"{menu}_editor")
+    # --- Data Editor with Lifecycle Stage Dropdown Support ---
+    st.markdown("### ✏️ Edit Department Records")
+    st.info("💡 **Lifecycle Stage Workflow Hint**: Alert created ➡️ Logistics checked ➡️ Procurement ordered ➡️ Transport dispatched ➡️ Delivered ➡️ Closed")
+    
+    edited_df = st.data_editor(
+        df_view, 
+        num_rows="dynamic", 
+        key=f"{menu}_editor",
+        column_config={
+            "Lifecycle Stage": st.column_config.SelectboxColumn(
+                "Lifecycle Stage",
+                help="Select current state of the alert workflow",
+                options=[
+                    "Alert created",
+                    "Logistics checked",
+                    "Procurement ordered",
+                    "Transport dispatched",
+                    "Delivered",
+                    "Closed"
+                ],
+                required=True
+            ),
+            "Stock Status": st.column_config.TextColumn("Stock Status (Auto-calculated)"),
+            "Priority": st.column_config.TextColumn("Priority (Auto-calculated)")
+        }
+    )
     
     if st.button("💾 Save Changes & Sync Across Departments"):
         current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
