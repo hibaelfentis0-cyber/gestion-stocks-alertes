@@ -25,12 +25,11 @@ except Exception as e:
 
 # --- SIDEBAR WITH COMPANY LOGO ---
 try:
-    # Si vous ajoutez le logo directement dans votre dépôt GitHub sous le nom "logo.png"
     logo_content = repo.get_contents("logo.png")
-    st.sidebar.image(BytesIO(logo_content.decoded_content), use_column_width=True)
+    st.sidebar.image(BytesIO(logo_content.decoded_content), width="stretch")
 except Exception:
-    # Solution de secours par défaut si le fichier n'est pas encore sur GitHub
-    st.sidebar.image("https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/Logo_Motherson.svg/1200px-Logo_Motherson.svg.png", use_column_width=True)
+    # Solution de secours si logo.png n'est pas dans le repo
+    st.sidebar.image("https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/Logo_Motherson.svg/1200px-Logo_Motherson.svg.png", width="stretch")
 
 st.sidebar.markdown("---")
 
