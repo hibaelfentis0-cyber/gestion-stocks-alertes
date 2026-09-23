@@ -23,28 +23,34 @@ try:
 except Exception as e:
     st.error(f"GitHub Connection Error: {e}")
 
-# 1. TITRE ET OBJECTIF DE L’APPLICATION
-st.title("Stock Alert Management System")
-st.markdown("A centralized system for real-time stock alert management and coordination between Production, Warehouse/Logistics, Procurement, and Transport to prevent stock shortages and ensure timely replenishment and delivery.")
-st.markdown("---")
+# --- SIDEBAR WITH COMPANY LOGO ---
+try:
+    # Si vous ajoutez le logo directement dans votre dépôt GitHub sous le nom "logo.png"
+    logo_content = repo.get_contents("logo.png")
+    st.sidebar.image(BytesIO(logo_content.decoded_content), use_column_width=True)
+except Exception:
+    # Solution de secours par défaut si le fichier n'est pas encore sur GitHub
+    st.sidebar.image("https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/Logo_Motherson.svg/1200px-Logo_Motherson.svg.png", use_column_width=True)
+
+st.sidebar.markdown("---")
 
 # Global Search bar in sidebar
 st.sidebar.markdown("### 🔍 Global Search")
-global_search_query = st.sidebar.text_input("Search (Product, PO, Supplier...):", "")
+global_search_query = st.sidebar.text_input("Search (Product Code, Description, PO...):", "")
 st.sidebar.markdown("---")
 
-# Navigation menu
+# Navigation menu (Professional English)
 menu = st.sidebar.radio(
     "Navigation Menu", 
-    ["📈 General Dashboard", "🏭 Production", "📦 Warehouse", "🛒 Procurement", "🚚 Transport"]
+    ["📈 General Dashboard", "🏭 Production Department", "📦 Warehouse Operations", "🛒 Procurement & Supply", "🚚 Transport Tracking"]
 )
 
 # Map departments to their respective Excel files on GitHub
 file_mapping = {
-    "🏭 Production": "01_Production_Stock_Alert.xlsx",
-    "📦 Warehouse": "02_Warehouse_Stock_Alert.xlsx",
-    "🛒 Procurement": "03_Procurement_Supply_Stock_Alert.xlsx",
-    "🚚 Transport": "04_Transport_Delivery_Stock_Alert.xlsx"
+    "🏭 Production Department": "01_Production_Stock_Alert.xlsx",
+    "📦 Warehouse Operations": "02_Warehouse_Stock_Alert.xlsx",
+    "🛒 Procurement & Supply": "03_Procurement_Supply_Stock_Alert.xlsx",
+    "🚚 Transport Tracking": "04_Transport_Delivery_Stock_Alert.xlsx"
 }
 
 # Helper function to convert dataframe to downloadable Excel bytes
@@ -82,7 +88,6 @@ def calculate_intelligence(row):
     
     reorder_point = (daily_cons * lead_time) + safety_stock
     
-    # Correct Shortage calculation: Only positive values when available < required. If available > required, shortage is 0.
     shortage = req - avail
     if shortage < 0:
         shortage = 0.0
@@ -90,7 +95,7 @@ def calculate_intelligence(row):
     if avail < req:
         stock_status = "🔴 Shortage"
     elif avail == 1:
-        stock_status = "🔴 Last Box"
+        stock_status = "🔴 Last Unit"
     elif avail <= reorder_point:
         stock_status = "🟠 Low Stock"
     else:
@@ -98,7 +103,7 @@ def calculate_intelligence(row):
         
     if avail < req or stock_status == "🔴 Shortage":
         priority = "🚨 Critical"
-    elif stock_status == "🔴 Last Box":
+    elif stock_status == "🔴 Last Unit":
         priority = "🔴 High"
     elif stock_status == "🟠 Low Stock":
         priority = "🟠 Medium"
@@ -106,16 +111,32 @@ def calculate_intelligence(row):
         priority = "🟢 Normal"
         
     if avail > reorder_point:
-        reorder_status = "No Reorder"
+        reorder_status = "No Reorder Required"
     else:
-        reorder_status = "Reorder Required"
+        reorder_status = "Reorder Triggered"
         
     days_left = int(avail / daily_cons) if daily_cons > 0 else 0
     stock_out_date = (datetime.now() + timedelta(days=days_left)).strftime("%Y-%m-%d") if avail > 0 else datetime.now().strftime("%Y-%m-%d")
     
     return stock_status, priority, shortage, reorder_point, reorder_status, stock_out_date
 
-# Safe data loader to prevent crashes
+# Sort dataframe by priority order (Critical/Shortage -> Last Unit -> Low Stock -> Normal)
+def sort_dataframe_by_priority(df):
+    if df.empty or "Stock Status" not in df.columns:
+        return df
+    
+    priority_order = {
+        "🔴 Shortage": 1,
+        "🔴 Last Unit": 2,
+        "🟠 Low Stock": 3,
+        "🟢 Normal Stock": 4
+    }
+    
+    df["_sort_rank"] = df["Stock Status"].map(priority_order).fillna(5)
+    df = df.sort_values(by=["_sort_rank", "Shortage Quantity"], ascending=[True, False]).drop(columns=["_sort_rank"])
+    return df.reset_index(drop=True)
+
+# Safe data loader to prevent crashes and ensure complete synchronization
 def load_excel_data(filename, dept_name):
     try:
         file_content = repo.get_contents(filename)
@@ -123,8 +144,8 @@ def load_excel_data(filename, dept_name):
     except Exception:
         df = pd.DataFrame()
         
-    prod_file = file_mapping["🏭 Production"]
-    wh_file = file_mapping["📦 Warehouse"]
+    prod_file = file_mapping["🏭 Production Department"]
+    wh_file = file_mapping["📦 Warehouse Operations"]
     
     prod_df = pd.DataFrame()
     wh_df = pd.DataFrame()
@@ -168,6 +189,8 @@ def load_excel_data(filename, dept_name):
             if pd.notna(pc): current_map[str(pc)] = r.to_dict()
 
     combined_rows = []
+    current_time_stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    
     for p_code in master_codes:
         p_row = prod_map.get(p_code, current_map.get(p_code, {}))
         w_row = wh_map.get(p_code, current_map.get(p_code, {}))
@@ -182,7 +205,7 @@ def load_excel_data(filename, dept_name):
         except:
             avail = 50.0
         
-        base_src = p_row if dept_name == "🏭 Production" else w_row
+        base_src = p_row if "Production" in dept_name else w_row
         if not base_src or not isinstance(base_src, dict) or len(base_src) == 0:
             base_src = w_row if (w_row and isinstance(w_row, dict) and len(w_row) > 0) else p_row
         if not isinstance(base_src, dict):
@@ -197,18 +220,18 @@ def load_excel_data(filename, dept_name):
         }
         stock_status, priority, shortage, reorder_point, reorder_status, stock_out_date = calculate_intelligence(temp_dict)
 
-        if stock_status in ["🔴 Shortage", "🔴 Last Box"]:
-            notif_status = f"🚨 ALERT: {stock_status} (Shortage: {shortage} units)"
+        if stock_status in ["🔴 Shortage", "🔴 Last Unit"]:
+            notif_status = f"🚨 ALERT: {stock_status} (Shortage: {int(shortage)} units)"
         elif stock_status == "🟠 Low Stock":
             notif_status = "⚠️ WARNING: Low Stock Level"
         else:
-            notif_status = "✅ Normal (Stock OK)"
+            notif_status = "✅ Normal (Stock Optimal)"
 
         row_data = {
             "Alert ID": base_src.get("Alert ID", f"ALT-{p_code}"),
             "Date": base_src.get("Date", datetime.now().strftime("%Y-%m-%d")),
             "Product Code": p_code,
-            "Product Description": base_src.get("Product Description", "Standard Product"),
+            "Product Description": base_src.get("Product Description", "Standard Industrial Component"),
             "Quantity Required": req,
             "Quantity Available": avail,
             "Shortage Quantity": shortage,
@@ -221,28 +244,30 @@ def load_excel_data(filename, dept_name):
             "Reorder Point": reorder_point,
             "Reorder Status": reorder_status,
             "Estimated Stock-Out Date": stock_out_date,
-            "Last Updated": base_src.get("Last Updated", datetime.now().strftime("%Y-%m-%d %H:%M")),
-            "Production Line": p_row.get("Production Line", "") if isinstance(p_row, dict) else "",
-            "Warehouse Location": w_row.get("Warehouse Location", "") if isinstance(w_row, dict) else "",
-            "Comments": base_src.get("Comments", "")
+            "Last Updated": current_time_stamp,
+            "Production Line": p_row.get("Production Line", "Line-A") if isinstance(p_row, dict) else "Line-A",
+            "Warehouse Location": w_row.get("Warehouse Location", "Zone-B1") if isinstance(w_row, dict) else "Zone-B1",
+            "Comments": base_src.get("Comments", "No remarks")
         }
         
-        row_data["Supplier"] = base_src.get("Supplier", "Default Supplier")
+        row_data["Supplier"] = base_src.get("Supplier", "Global Supplier Corp")
         row_data["Order Date"] = base_src.get("Order Date", datetime.now().strftime("%Y-%m-%d"))
         row_data["Expected Delivery Date"] = base_src.get("Expected Delivery Date", (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d"))
         row_data["PO Number"] = base_src.get("PO Number", f"PO-{p_code}")
         
-        row_data["Transport"] = base_src.get("Transport", "Road")
-        row_data["Truck Number"] = base_src.get("Truck Number", "")
+        row_data["Transport"] = base_src.get("Transport", "Freight Truck")
+        row_data["Truck Number"] = base_src.get("Truck Number", "TRK-9921")
         row_data["Transport Status"] = base_src.get("Transport Status", "In Transit")
 
         combined_rows.append(row_data)
 
     final_df = pd.DataFrame(combined_rows)
 
-    if dept_name in ["🛒 Procurement", "🚚 Transport"]:
+    if dept_name in ["🛒 Procurement & Supply", "🚚 Transport Tracking"]:
         if "Stock Status" in final_df.columns:
-            final_df = final_df[final_df["Stock Status"].isin(["🔴 Shortage", "🔴 Last Box", "🟠 Low Stock"])]
+            final_df = final_df[final_df["Stock Status"].isin(["🔴 Shortage", "🔴 Last Unit", "🟠 Low Stock"])]
+
+    final_df = sort_dataframe_by_priority(final_df)
 
     try:
         fc = repo.get_contents(filename)
@@ -265,21 +290,24 @@ def save_to_github(dataframe, filename, message_text, file_sha):
     except Exception as err:
         st.error(f"Error saving to GitHub: {err}")
 
-# --- 2. DASHBOARD ---
+# --- TITLE AND OBJECTIVE ---
+st.title("🏢 Motherson PKC — Stock Alert & Supply Chain Management System")
+st.markdown("A centralized enterprise system for real-time inventory monitoring, shortage tracking, and cross-departmental coordination.")
+st.markdown("---")
+
+# --- 2. GENERAL DASHBOARD WITH GRAPHIC SYMBOLS ---
 if menu == "📈 General Dashboard":
-    st.header("📈 General Dashboard & Departmental Analytics")
-    st.markdown("Professional overview of inventory health, stock alerts, and shortage volumes across each department.")
+    st.header("📈 Enterprise General Dashboard & Analytics")
+    st.markdown("Real-time visual health indicators, inventory metrics, and sorted priority alerts across all departments.")
     
     dept_stats = []
     total_alerts_all = 0
     total_active_all = 0
     total_shortage_qty_all = 0
     total_reorder_all = 0
-    last_box_all = 0
+    last_unit_all = 0
     low_stock_all = 0
-    open_proc_all = 0
-    pending_deliv_all = 0
-    delayed_deliv_all = 0
+    critical_alerts_all = 0
 
     for dept_name, fname in file_mapping.items():
         d_df, _ = load_excel_data(fname, dept_name)
@@ -290,46 +318,54 @@ if menu == "📈 General Dashboard":
         d_total = len(d_df)
         d_active = len(d_df[d_df["Stock Status"] != "🟢 Normal Stock"]) if not d_df.empty and "Stock Status" in d_df.columns else 0
         d_shortage_qty = int(d_df["Shortage Quantity"].sum()) if not d_df.empty and "Shortage Quantity" in d_df.columns else 0
-        d_reorder = len(d_df[d_df["Reorder Status"] == "Reorder Required"]) if not d_df.empty and "Reorder Status" in d_df.columns else 0
+        d_reorder = len(d_df[d_df["Reorder Status"] == "Reorder Triggered"]) if not d_df.empty and "Reorder Status" in d_df.columns else 0
         
         total_alerts_all += d_total
         total_active_all += d_active
         total_shortage_qty_all += d_shortage_qty
         total_reorder_all += d_reorder
         if not d_df.empty and "Stock Status" in d_df.columns:
-            last_box_all += len(d_df[d_df["Stock Status"] == "🔴 Last Box"])
+            last_unit_all += len(d_df[d_df["Stock Status"] == "🔴 Last Unit"])
             low_stock_all += len(d_df[d_df["Stock Status"] == "🟠 Low Stock"])
-            delayed_deliv_all += len(d_df[d_df["Stock Status"] == "🔴 Shortage"])
+            critical_alerts_all += len(d_df[d_df["Stock Status"] == "🔴 Shortage"])
 
         dept_clean_name = dept_name.split(" ")[1] if " " in dept_name else dept_name
         dept_stats.append({
             "Department": dept_clean_name,
             "Total Alerts": d_total,
-            "Shortage Quantity": d_shortage_qty,
-            "Reorder Required": d_reorder
+            "Shortage Volume": d_shortage_qty,
+            "Reorders Required": d_reorder
         })
 
-    open_proc_all = total_alerts_all
-    pending_deliv_all = total_active_all
-
+    # Graphic Dashboard Metrics Layout
+    st.markdown("### 📊 Key Performance Indicators (KPIs)")
     k1, k2, k3 = st.columns(3)
     with k1: 
-        st.metric("Total Stock Alerts", total_alerts_all)
-        st.metric("Reorder Required", total_reorder_all)
+        st.metric("📦 Total Tracked Items", total_alerts_all, delta="Stable Supply", delta_color="normal")
+        st.metric("🔄 Reorders Triggered", total_reorder_all, delta="Action Needed", delta_color="inverse")
     with k2: 
-        st.metric("Active Alerts", total_active_all)
-        st.metric("Open Procurement Orders", open_proc_all)
+        st.metric("⚠️ Active Stock Anomalies", total_active_all, delta="Requires Attention", delta_color="inverse")
+        st.metric("🛒 Open Purchase Orders", total_active_all, delta="In Progress", delta_color="normal")
     with k3: 
-        st.metric("Shortage Quantity", total_shortage_qty_all)
-        st.metric("Pending Deliveries", pending_deliv_all)
+        st.metric("🚨 Total Shortage Volume", f"{total_shortage_qty_all} Units", delta="Deficit", delta_color="inverse")
+        st.metric("🚚 Pending Shipments", total_active_all, delta="On Schedule", delta_color="normal")
 
-    k4, k5, k6 = st.columns(3)
-    with k4: st.metric("Low Stock Items", low_stock_all)
-    with k5: st.metric("Last Box Items", last_box_all)
-    with k6: st.metric("Delayed Deliveries", delayed_deliv_all)
+    st.markdown("---")
+    
+    # Status Breakdown Metrics with Graphic Symbols
+    st.markdown("### 🚦 Inventory Status Health Breakdown (Sorted by Priority)")
+    s1, s2, s3, s4 = st.columns(4)
+    with s1:
+        st.metric("🟢 Optimal Stock", f"{total_alerts_all - total_active_all} Items")
+    with s2:
+        st.metric("🟠 Low Stock Warning", f"{low_stock_all} Items")
+    with s3:
+        st.metric("🔴 Last Unit Alert", f"{last_unit_all} Items")
+    with s4:
+        st.metric("🚨 Critical Shortage", f"{critical_alerts_all} Items")
     
     st.markdown("---")
-    st.markdown("### 📊 Departmental Alerts & Shortage Volumes Breakdown")
+    st.markdown("### 📈 Departmental Shortage Volume & Alert Distribution")
     if dept_stats:
         chart_df = pd.DataFrame(dept_stats).set_index("Department")
         st.bar_chart(chart_df)
@@ -342,16 +378,16 @@ else:
     st.header(f"Motherson PKC — {menu}")
     
     if "Production" in menu:
-        st.markdown("🏭 **Production Department**: Manage your **Quantity Required**. Real-time notifications and stock checks enabled.")
+        st.markdown("🏭 **Production Department**: Manage your **Quantity Required**. Real-time shortage calculations and notifications enabled.")
         specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Required", "Warehouse Notification", "Production Line", "Last Updated", "Comments"]
     elif "Warehouse" in menu:
-        st.markdown("📦 **Warehouse Department**: Manage stock levels, consumption parameters, safety stock, and reorder triggers.")
+        st.markdown("📦 **Warehouse Operations**: Control available stocks, consumption rates, safety limits, and automatic reorder triggers.")
         specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Available", "Quantity Required", "Shortage Quantity", "Stock Status", "Priority", "Daily Consumption", "Lead Time", "Safety Stock", "Reorder Point", "Reorder Status", "Estimated Stock-Out Date", "Warehouse Location", "Last Updated", "Comments"]
     elif "Procurement" in menu:
-        st.markdown("🛒 **Procurement Escalations**: Manage supplier parameters, PO numbers, order dates, and expected deliveries.")
+        st.markdown("🛒 **Procurement & Supply**: Handle supplier data, purchase orders (PO), order dates, and expected deliveries.")
         specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Available", "Quantity Required", "Shortage Quantity", "Stock Status", "Priority", "Supplier", "Lead Time", "Order Date", "Expected Delivery Date", "PO Number", "Last Updated"]
     else:
-        st.markdown("🚚 **Transport Tracking**: Monitor transport routes, truck numbers, and dispatch statuses.")
+        st.markdown("🚚 **Transport Tracking**: Monitor logistics routes, truck assignments, and dispatch execution statuses.")
         specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Available", "Quantity Required", "Shortage Quantity", "Stock Status", "Priority", "Transport", "Truck Number", "Transport Status", "Last Updated"]
 
     for col in specific_cols:
@@ -372,8 +408,10 @@ else:
         mask = df_view.apply(lambda row: row.astype(str).str.contains(st.session_state[search_key], case=False).any(), axis=1)
         df_view = df_view[mask]
 
+    df_view = sort_dataframe_by_priority(df_view)
+
     # --- 1. EDIT TABLE FIRST ---
-    st.markdown("### ✏️ Edit Department Records")
+    st.markdown("### ✏️ Edit Department Records (Sorted by Priority)")
     
     edited_df = st.data_editor(
         df_view, 
@@ -387,7 +425,7 @@ else:
         }
     )
     
-    if st.button("💾 Save Changes & Sync Across Departments"):
+    if st.button("💾 Save Changes & Synchronize All Departments"):
         current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         edited_df["Last Updated"] = current_time_str
         
@@ -401,13 +439,12 @@ else:
 
         save_to_github(df, current_file, f"Update {menu}", file_sha)
         
-        if "Production" in menu or "Warehouse" in menu:
-            other_menu = "📦 Warehouse" if "Production" in menu else "🏭 Production"
-            other_file = file_mapping[other_menu]
-            other_df, other_sha = load_excel_data(other_file, other_menu)
-            save_to_github(other_df, other_file, f"Auto-sync from {menu}", other_sha)
+        for other_menu, other_file in file_mapping.items():
+            if other_file != current_file:
+                other_df, other_sha = load_excel_data(other_file, other_menu)
+                save_to_github(other_df, other_file, f"Full system sync from {menu}", other_sha)
             
-        st.success("✅ Changes saved and warehouse status notifications synchronized successfully!")
+        st.success("✅ Changes saved and synchronized across all department logs successfully!")
         st.rerun()
 
     st.markdown("---")
@@ -415,14 +452,14 @@ else:
     # --- 2. SEARCH & FILTER BELOW THE TABLE ---
     col_search, col_export = st.columns([3, 1])
     with col_search:
-        st.markdown("### 🔍 Search & Filter")
-        st.text_input("Filter by Product Code or Description:", key=search_key, placeholder="Type to filter records...")
+        st.markdown("### 🔍 Search & Filter Records")
+        st.text_input("Filter by Product Code or Description:", key=search_key, placeholder="Type keywords to filter...")
             
     with col_export:
-        st.markdown("### 💾 Export Data")
+        st.markdown("### 💾 Export Report")
         dept_excel = convert_df_to_excel(df_view)
         st.download_button(
-            label="📥 Download Excel",
+            label="📥 Download Excel Report",
             data=dept_excel,
             file_name=f"{menu.replace(' ', '_')}_Report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -430,7 +467,7 @@ else:
         )
 
     # --- 3. ADD NEW ENTRY BELOW THE TABLE ---
-    with st.expander(f"➕ Add New Entry to {menu}"):
+    with st.expander(f"➕ Add New Product Entry to {menu}"):
         with st.form(key=f"add_form_{menu}"):
             col_a, col_b, col_c = st.columns(3)
             with col_a:
@@ -456,5 +493,5 @@ else:
                 
                 df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
                 save_to_github(df, current_file, f"Add product {new_pcode} in {menu}", file_sha)
-                st.success(f"Product {new_pcode} added successfully to {menu}!")
+                st.success(f"Product {new_pcode} added successfully!")
                 st.rerun()
