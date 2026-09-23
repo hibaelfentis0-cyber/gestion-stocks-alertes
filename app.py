@@ -209,7 +209,6 @@ def load_excel_data(filename, dept_name):
             "Safety Stock": temp_dict["Safety Stock"],
             "Reorder Point": reorder_point,
             "Estimated Stock-Out Date": stock_out_date,
-            "Lifecycle Stage": base_src.get("Lifecycle Stage", "Alert created"),
             "Last Updated": base_src.get("Last Updated", datetime.now().strftime("%Y-%m-%d %H:%M")),
             "Production Line": p_row.get("Production Line", "") if isinstance(p_row, dict) else "",
             "Warehouse Location": w_row.get("Warehouse Location", "") if isinstance(w_row, dict) else "",
@@ -273,7 +272,6 @@ if menu == "📈 General Dashboard":
         low_stock_count = len(global_df[global_df["Stock Status"] == "🟠 Low Stock"]) if "Stock Status" in global_df.columns else 0
         normal_count = len(global_df[global_df["Stock Status"] == "🟢 Normal Stock"]) if "Stock Status" in global_df.columns else 0
         
-        # Extended professional metrics including Last Box
         k1, k2, k3, k4, k5 = st.columns(5)
         with k1: st.metric("Total Items", total_alerts)
         with k2: st.metric("🔴 Shortages", shortages_count)
@@ -295,10 +293,10 @@ if menu == "📈 General Dashboard":
         with col_insights:
             st.markdown("### 💡 Executive Insights")
             if shortages_count > 0 or last_box_count > 0:
-                st.error(f"⚠️ **Urgent Action**: {shortages_count + last_box_count} items require immediate attention (Shortage or Last Box)!")
+                st.error(f"⚠️ **Urgent Action**: {shortages_count + last_box_count} items require immediate attention!")
             else:
                 st.success("✅ **Operations Stable**: All inventory levels are healthy.")
-            st.info("ℹ️ Select a specific department from the sidebar to update stock, place orders, or advance lifecycle stages.")
+            st.info("ℹ️ Select a specific department from the sidebar to update stock or place orders.")
 
         st.markdown("### 📋 Global Master Data Table")
         excel_data = convert_df_to_excel(global_df)
@@ -319,16 +317,16 @@ else:
     
     if "Production" in menu:
         st.markdown("🏭 **Production Department**: Manage your **Quantity Required**. Real-time notifications and stock checks enabled.")
-        specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Required", "Warehouse Notification", "Production Line", "Lifecycle Stage", "Last Updated", "Comments"]
+        specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Required", "Warehouse Notification", "Production Line", "Last Updated", "Comments"]
     elif "Warehouse" in menu:
         st.markdown("📦 **Warehouse Department**: Manage stock levels (**Quantity Available**), safety stock, and lead times.")
-        specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Available", "Quantity Required", "Shortage Quantity", "Stock Status", "Priority", "Reorder Point", "Estimated Stock-Out Date", "Warehouse Location", "Lifecycle Stage", "Last Updated", "Comments"]
+        specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Available", "Quantity Required", "Shortage Quantity", "Stock Status", "Priority", "Reorder Point", "Estimated Stock-Out Date", "Warehouse Location", "Last Updated", "Comments"]
     elif "Procurement" in menu:
         st.markdown("🛒 **Procurement Escalations**: Manage supplier parameters, PO numbers, order dates, and expected deliveries.")
-        specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Available", "Quantity Required", "Shortage Quantity", "Stock Status", "Priority", "Supplier", "Lead Time", "Order Date", "Expected Delivery Date", "PO Number", "Lifecycle Stage", "Last Updated"]
+        specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Available", "Quantity Required", "Shortage Quantity", "Stock Status", "Priority", "Supplier", "Lead Time", "Order Date", "Expected Delivery Date", "PO Number", "Last Updated"]
     else:
         st.markdown("🚚 **Transport Tracking**: Monitor transport routes, truck numbers, and dispatch statuses.")
-        specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Available", "Quantity Required", "Shortage Quantity", "Stock Status", "Priority", "Transport", "Truck Number", "Transport Status", "Lifecycle Stage", "Last Updated"]
+        specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Available", "Quantity Required", "Shortage Quantity", "Stock Status", "Priority", "Transport", "Truck Number", "Transport Status", "Last Updated"]
 
     for col in specific_cols:
         if col not in df.columns:
@@ -376,7 +374,6 @@ else:
                 new_row["Product Description"] = new_pdesc
                 if "Quantity Required" in new_row: new_row["Quantity Required"] = new_qty
                 if "Quantity Available" in new_row: new_row["Quantity Available"] = new_qty
-                new_row["Lifecycle Stage"] = "Alert created"
                 new_row["Last Updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                 
                 df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
@@ -384,28 +381,14 @@ else:
                 st.success(f"Product {new_pcode} added successfully!")
                 st.rerun()
 
-    # --- Data Editor with Lifecycle Stage Dropdown Support ---
+    # --- Data Editor ---
     st.markdown("### ✏️ Edit Department Records")
-    st.info("💡 **Lifecycle Stage Workflow Hint**: Alert created ➡️ Logistics checked ➡️ Procurement ordered ➡️ Transport dispatched ➡️ Delivered ➡️ Closed")
     
     edited_df = st.data_editor(
         df_view, 
         num_rows="dynamic", 
         key=f"{menu}_editor",
         column_config={
-            "Lifecycle Stage": st.column_config.SelectboxColumn(
-                "Lifecycle Stage",
-                help="Select current state of the alert workflow",
-                options=[
-                    "Alert created",
-                    "Logistics checked",
-                    "Procurement ordered",
-                    "Transport dispatched",
-                    "Delivered",
-                    "Closed"
-                ],
-                required=True
-            ),
             "Stock Status": st.column_config.TextColumn("Stock Status (Auto-calculated)"),
             "Priority": st.column_config.TextColumn("Priority (Auto-calculated)")
         }
