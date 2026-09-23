@@ -28,7 +28,7 @@ st.title("Stock Alert Management System")
 st.markdown("A centralized system for real-time stock alert management and coordination between Production, Warehouse/Logistics, Procurement, and Transport to prevent stock shortages and ensure timely replenishment and delivery.")
 st.markdown("---")
 
-# 4. RECHERCHE GÉNÉRALE (Global Search bar visible across the application)
+# Global Search bar in sidebar
 st.sidebar.markdown("### 🔍 Global Search")
 global_search_query = st.sidebar.text_input("Search (Product, PO, Supplier...):", "")
 st.sidebar.markdown("---")
@@ -55,7 +55,7 @@ def convert_df_to_excel(df):
     processed_data = output.getvalue()
     return processed_data
 
-# 6. CALCUL AUTOMATIQUE DU REORDER POINT & 7. REORDER STATUS & Existing Stock Intelligence Logic
+# Intelligent calculations & Reorder Point formula
 def calculate_intelligence(row):
     try:
         avail = float(row.get("Quantity Available", 0))
@@ -80,14 +80,10 @@ def calculate_intelligence(row):
     
     if daily_cons <= 0: daily_cons = 1.0
     
-    # 6. Reorder Point Formula: Reorder Point = (Daily Consumption × Lead Time) + Safety Stock
     reorder_point = (daily_cons * lead_time) + safety_stock
-    
-    # Existing Shortage calculation
     shortage = req - avail
     if shortage < 0: shortage = 0
     
-    # --- Stock Status Intelligent (Existing) ---
     if shortage > 0:
         stock_status = "🔴 Shortage"
     elif avail == 1:
@@ -97,7 +93,6 @@ def calculate_intelligence(row):
     else:
         stock_status = "🟢 Normal Stock"
         
-    # --- Priority Logic (Existing) ---
     if shortage > 0 or stock_status == "🔴 Shortage":
         priority = "🚨 Critical"
     elif stock_status == "🔴 Last Box":
@@ -107,7 +102,6 @@ def calculate_intelligence(row):
     else:
         priority = "🟢 Normal"
         
-    # 7. Reorder Status based on Reorder Point
     if avail > reorder_point:
         reorder_status = "No Reorder"
     else:
@@ -230,13 +224,11 @@ def load_excel_data(filename, dept_name):
             "Comments": base_src.get("Comments", "")
         }
         
-        # Procurement fields
         row_data["Supplier"] = base_src.get("Supplier", "Default Supplier")
         row_data["Order Date"] = base_src.get("Order Date", datetime.now().strftime("%Y-%m-%d"))
         row_data["Expected Delivery Date"] = base_src.get("Expected Delivery Date", (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d"))
         row_data["PO Number"] = base_src.get("PO Number", f"PO-{p_code}")
         
-        # Transport fields
         row_data["Transport"] = base_src.get("Transport", "Road")
         row_data["Truck Number"] = base_src.get("Truck Number", "")
         row_data["Transport Status"] = base_src.get("Transport Status", "In Transit")
@@ -270,95 +262,84 @@ def save_to_github(dataframe, filename, message_text, file_sha):
     except Exception as err:
         st.error(f"Error saving to GitHub: {err}")
 
-# --- 2. DASHBOARD ---
+# --- 2. DASHBOARD (Without Master Table and Executive Insights, with Department Breakdown Chart) ---
 if menu == "📈 General Dashboard":
-    st.header("📈 General Dashboard & Comprehensive Analytics")
-    st.markdown("Professional overview of inventory health, stock alerts, reorder requirements, and departmental execution.")
+    st.header("📈 General Dashboard & Departmental Analytics")
+    st.markdown("Professional overview of inventory health, stock alerts, and shortage volumes across each department.")
     
-    dfs = []
+    dept_stats = []
+    total_alerts_all = 0
+    total_active_all = 0
+    total_shortage_qty_all = 0
+    total_reorder_all = 0
+    last_box_all = 0
+    low_stock_all = 0
+    open_proc_all = 0
+    pending_deliv_all = 0
+    delayed_deliv_all = 0
+
     for dept_name, fname in file_mapping.items():
         d_df, _ = load_excel_data(fname, dept_name)
-        d_df["Department"] = dept_name
-        dfs.append(d_df)
+        if global_search_query and not d_df.empty:
+            mask = d_df.apply(lambda row: row.astype(str).str.contains(global_search_query, case=False).any(), axis=1)
+            d_df = d_df[mask]
+        
+        d_total = len(d_df)
+        d_active = len(d_df[d_df["Stock Status"] != "🟢 Normal Stock"]) if not d_df.empty and "Stock Status" in d_df.columns else 0
+        d_shortage_qty = int(d_df["Shortage Quantity"].sum()) if not d_df.empty and "Shortage Quantity" in d_df.columns else 0
+        d_reorder = len(d_df[d_df["Reorder Status"] == "Reorder Required"]) if not d_df.empty and "Reorder Status" in d_df.columns else 0
+        
+        total_alerts_all += d_total
+        total_active_all += d_active
+        total_shortage_qty_all += d_shortage_qty
+        total_reorder_all += d_reorder
+        if not d_df.empty and "Stock Status" in d_df.columns:
+            last_box_all += len(d_df[d_df["Stock Status"] == "🔴 Last Box"])
+            low_stock_all += len(d_df[d_df["Stock Status"] == "🟠 Low Stock"])
+            delayed_deliv_all += len(d_df[d_df["Stock Status"] == "🔴 Shortage"])
+
+        dept_clean_name = dept_name.split(" ")[1] if " " in dept_name else dept_name
+        dept_stats.append({
+            "Department": dept_clean_name,
+            "Total Alerts": d_total,
+            "Shortage Quantity": d_shortage_qty,
+            "Reorder Required": d_reorder
+        })
+
+    open_proc_all = total_alerts_all
+    pending_deliv_all = total_active_all
+
+    k1, k2, k3 = st.columns(3)
+    with k1: 
+        st.metric("Total Stock Alerts", total_alerts_all)
+        st.metric("Reorder Required", total_reorder_all)
+    with k2: 
+        st.metric("Active Alerts", total_active_all)
+        st.metric("Open Procurement Orders", open_proc_all)
+    with k3: 
+        st.metric("Shortage Quantity", total_shortage_qty_all)
+        st.metric("Pending Deliveries", pending_deliv_all)
+
+    k4, k5, k6 = st.columns(3)
+    with k4: st.metric("Low Stock Items", low_stock_all)
+    with k5: st.metric("Last Box Items", last_box_all)
+    with k6: st.metric("Delayed Deliveries", delayed_deliv_all)
     
-    if dfs:
-        global_df = pd.concat(dfs, ignore_index=True).drop_duplicates(subset=["Product Code"])
-        
-        # Apply global search filter if entered
-        if global_search_query:
-            mask = global_df.apply(lambda row: row.astype(str).str.contains(global_search_query, case=False).any(), axis=1)
-            global_df = global_df[mask]
+    st.markdown("---")
+    
+    # Chart showing Total Alerts and Shortage Quantities per Department
+    st.markdown("### 📊 Departmental Alerts & Shortage Volumes Breakdown")
+    if dept_stats:
+        chart_df = pd.DataFrame(dept_stats).set_index("Department")
+        st.bar_chart(chart_df)
 
-        total_alerts = len(global_df)
-        active_alerts = len(global_df[global_df["Stock Status"] != "🟢 Normal Stock"]) if "Stock Status" in global_df.columns else 0
-        shortages_count = len(global_df[global_df["Stock Status"] == "🔴 Shortage"]) if "Stock Status" in global_df.columns else 0
-        total_shortage_qty = int(global_df["Shortage Quantity"].sum()) if "Shortage Quantity" in global_df.columns else 0
-        last_box_count = len(global_df[global_df["Stock Status"] == "🔴 Last Box"]) if "Stock Status" in global_df.columns else 0
-        low_stock_count = len(global_df[global_df["Stock Status"] == "🟠 Low Stock"]) if "Stock Status" in global_df.columns else 0
-        reorder_required_count = len(global_df[global_df["Reorder Status"] == "Reorder Required"]) if "Reorder Status" in global_df.columns else 0
-        open_proc_orders = total_alerts # All alerts tracked in procurement pipeline
-        pending_deliveries = active_alerts
-        delayed_deliveries = shortages_count
-        
-        # 3 rows of professional KPI metrics
-        k1, k2, k3 = st.columns(3)
-        with k1: 
-            st.metric("Total Stock Alerts", total_alerts)
-            st.metric("Reorder Required", reorder_required_count)
-        with k2: 
-            st.metric("Active Alerts", active_alerts)
-            st.metric("Open Procurement Orders", open_proc_orders)
-        with k3: 
-            st.metric("Shortage Quantity", total_shortage_qty)
-            st.metric("Pending Deliveries", pending_deliveries)
-
-        k4, k5, k6 = st.columns(3)
-        with k4: st.metric("Low Stock Items", low_stock_count)
-        with k5: st.metric("Last Box Items", last_box_count)
-        with k6: st.metric("Delayed Deliveries", delayed_deliveries)
-        
-        st.markdown("---")
-        col_chart, col_insights = st.columns([2, 1])
-        
-        with col_chart:
-            st.markdown("### 📊 Intelligent Stock Status Distribution")
-            chart_data = pd.DataFrame({
-                "Status": ["Shortage", "Last Box", "Low Stock", "Normal Stock"],
-                "Count": [
-                    shortages_count, 
-                    last_box_count, 
-                    low_stock_count, 
-                    len(global_df[global_df["Stock Status"] == "🟢 Normal Stock"])
-                ]
-            }).set_index("Status")
-            st.bar_chart(chart_data)
-            
-        with col_insights:
-            st.markdown("### 💡 Executive Insights")
-            if shortages_count > 0 or last_box_count > 0:
-                st.error(f"⚠️ **Urgent Action**: {shortages_count + last_box_count} items require immediate attention (Shortage or Last Box)!")
-            else:
-                st.success("✅ **Operations Stable**: All inventory levels are healthy.")
-            st.info("ℹ️ Select a specific department from the sidebar to manage records or add new items.")
-
-        st.markdown("### 📋 Global Master Data Table")
-        excel_data = convert_df_to_excel(global_df)
-        st.download_button(
-            label="📥 Download Global Master Data as Excel",
-            data=excel_data,
-            file_name="Motherson_Global_Stock_Report.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-        st.dataframe(global_df, use_container_width=True)
-
-# --- 3. SPECIFIC DEPARTMENTS & ADD SECTIONS ---
+# --- 3. SPECIFIC DEPARTMENTS (Table First, Search & Add Below) ---
 else:
     current_file = file_mapping[menu]
     df, file_sha = load_excel_data(current_file, menu)
     
     st.header(f"Motherson PKC — {menu}")
     
-    # 5. SPECIFIC WAREHOUSE COLUMNS (Daily Consumption, Lead Time, Safety Stock, Reorder Point without unit parenthesis in title)
     if "Production" in menu:
         st.markdown("🏭 **Production Department**: Manage your **Quantity Required**. Real-time notifications and stock checks enabled.")
         specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Required", "Warehouse Notification", "Production Line", "Last Updated", "Comments"]
@@ -378,19 +359,64 @@ else:
 
     df_view = df[specific_cols]
 
-    # --- Global Search Filter application on department view ---
     if global_search_query:
         mask = df_view.apply(lambda row: row.astype(str).str.contains(global_search_query, case=False).any(), axis=1)
         df_view = df_view[mask]
 
-    # --- Search / Filter & Export ---
+    # Session state for local department search filter
+    search_key = f"search_{menu}"
+    if search_key not in st.session_state:
+        st.session_state[search_key] = ""
+
+    if st.session_state[search_key]:
+        mask = df_view.apply(lambda row: row.astype(str).str.contains(st.session_state[search_key], case=False).any(), axis=1)
+        df_view = df_view[mask]
+
+    # --- 1. EDIT TABLE FIRST ---
+    st.markdown("### ✏️ Edit Department Records")
+    
+    edited_df = st.data_editor(
+        df_view, 
+        num_rows="dynamic", 
+        key=f"{menu}_editor",
+        column_config={
+            "Stock Status": st.column_config.TextColumn("Stock Status (Auto-calculated)"),
+            "Priority": st.column_config.TextColumn("Priority (Auto-calculated)"),
+            "Reorder Point": st.column_config.NumberColumn("Reorder Point (Auto-calculated)", format="%.1f"),
+            "Reorder Status": st.column_config.TextColumn("Reorder Status (Auto)")
+        }
+    )
+    
+    if st.button("💾 Save Changes & Sync Across Departments"):
+        current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        edited_df["Last Updated"] = current_time_str
+        
+        for idx, row in edited_df.iterrows():
+            p_code = row.get("Product Code")
+            match_idx = df[df["Product Code"] == p_code].index
+            if not match_idx.empty:
+                for col in edited_df.columns:
+                    if col in df.columns:
+                        df.loc[match_idx, col] = row[col]
+
+        save_to_github(df, current_file, f"Update {menu}", file_sha)
+        
+        if "Production" in menu or "Warehouse" in menu:
+            other_menu = "📦 Warehouse" if "Production" in menu else "🏭 Production"
+            other_file = file_mapping[other_menu]
+            other_df, other_sha = load_excel_data(other_file, other_menu)
+            save_to_github(other_df, other_file, f"Auto-sync from {menu}", other_sha)
+            
+        st.success("✅ Changes saved and warehouse status notifications synchronized successfully!")
+        st.rerun()
+
+    st.markdown("---")
+
+    # --- 2. SEARCH & FILTER BELOW THE TABLE ---
     col_search, col_export = st.columns([3, 1])
     with col_search:
         st.markdown("### 🔍 Search & Filter")
-        search_query = st.text_input("Filter by Product Code or Description:", "")
-        if search_query:
-            mask = df_view.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
-            df_view = df_view[mask]
+        st.text_input("Filter by Product Code or Description:", key=search_key, placeholder="Type to filter records...")
             
     with col_export:
         st.markdown("### 💾 Export Data")
@@ -403,7 +429,7 @@ else:
             key=f"download_{menu}"
         )
 
-    # --- 3. ADD SECTION FOR EACH DEPARTMENT ---
+    # --- 3. ADD NEW ENTRY BELOW THE TABLE ---
     with st.expander(f"➕ Add New Entry to {menu}"):
         with st.form(key=f"add_form_{menu}"):
             col_a, col_b, col_c = st.columns(3)
@@ -432,42 +458,3 @@ else:
                 save_to_github(df, current_file, f"Add product {new_pcode} in {menu}", file_sha)
                 st.success(f"Product {new_pcode} added successfully to {menu}!")
                 st.rerun()
-
-    # --- Data Editor ---
-    st.markdown("### ✏️ Edit Department Records")
-    
-    edited_df = st.data_editor(
-        df_view, 
-        num_rows="dynamic", 
-        key=f"{menu}_editor",
-        column_config={
-            "Stock Status": st.column_config.TextColumn("Stock Status (Auto-calculated)"),
-            "Priority": st.column_config.TextColumn("Priority (Auto-calculated)"),
-            "Reorder Point": st.column_config.NumberColumn("Reorder Point (Auto-calculated)", format="%.1f"),
-            "Reorder Status": st.column_config.TextColumn("Reorder Status (Auto)")
-        }
-    )
-    
-    if st.button("💾 Save Changes & Sync Across Departments"):
-        current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-        edited_df["Last Updated"] = current_time_str
-        
-        # Merge edits back into full df columns
-        for idx, row in edited_df.iterrows():
-            p_code = row.get("Product Code")
-            match_idx = df[df["Product Code"] == p_code].index
-            if not match_idx.empty:
-                for col in edited_df.columns:
-                    if col in df.columns:
-                        df.loc[match_idx, col] = row[col]
-
-        save_to_github(df, current_file, f"Update {menu}", file_sha)
-        
-        if "Production" in menu or "Warehouse" in menu:
-            other_menu = "📦 Warehouse" if "Production" in menu else "🏭 Production"
-            other_file = file_mapping[other_menu]
-            other_df, other_sha = load_excel_data(other_file, other_menu)
-            save_to_github(other_df, other_file, f"Auto-sync from {menu}", other_sha)
-            
-        st.success("✅ Changes saved and warehouse status notifications synchronized successfully!")
-        st.rerun()
