@@ -42,6 +42,14 @@ file_mapping = {
     "🚚 Transport": "04_Transport_Delivery_Stock_Alert.xlsx"
 }
 
+# Helper function to convert dataframe to downloadable Excel bytes
+def convert_df_to_excel(df):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False)
+    processed_data = output.getvalue()
+    return processed_data
+
 # Helper function to calculate Smart Stock Status, Reorder Point & Priority automatically
 def calculate_intelligence(row):
     try:
@@ -178,7 +186,6 @@ def load_excel_data(filename, dept_name):
         }
         stock_status, priority, shortage, reorder_point, stock_out_date = calculate_intelligence(temp_dict)
 
-        # Notification message for Production based on Warehouse check
         if stock_status in ["🔴 Shortage", "🔴 Last Box"]:
             notif_status = f"🚨 ALERT: {stock_status} (Shortage: {shortage} units)"
         elif stock_status == "🟠 Low Stock":
@@ -209,7 +216,6 @@ def load_excel_data(filename, dept_name):
             "Comments": base_src.get("Comments", "")
         }
         
-        # Specific fields for Procurement and Transport if applicable
         if "Supplier" in base_src: row_data["Supplier"] = base_src.get("Supplier", "")
         if "Procurement Status" in base_src: row_data["Procurement Status"] = base_src.get("Procurement Status", "Pending Procurement Approval")
         if "Transport" in base_src: row_data["Transport"] = base_src.get("Transport", "Road")
@@ -258,15 +264,49 @@ if menu == "📈 General Dashboard":
         global_df = pd.concat(dfs, ignore_index=True).drop_duplicates(subset=["Product Code"])
         total_alerts = len(global_df)
         shortages_count = len(global_df[global_df["Stock Status"] == "🔴 Shortage"]) if "Stock Status" in global_df.columns else 0
+        low_stock_count = len(global_df[global_df["Stock Status"] == "🟠 Low Stock"]) if "Stock Status" in global_df.columns else 0
+        normal_count = len(global_df[global_df["Stock Status"] == "🟢 Normal Stock"]) if "Stock Status" in global_df.columns else 0
         
-        k1, k2, k3 = st.columns(3)
+        # Extended professional metrics
+        k1, k2, k3, k4 = st.columns(4)
         with k1: st.metric("Total Items Tracked", total_alerts)
-        with k2: st.metric("Shortages", shortages_count)
-        with k3: st.metric("Health Rate", f"{max(0, 100 - (shortages_count*10))}%")
+        with k2: st.metric("🔴 Shortages", shortages_count)
+        with k3: st.metric("🟠 Low Stocks", low_stock_count)
+        with k4: st.metric("Health Rate", f"{max(0, int((normal_count / total_alerts) * 100))}%" if total_alerts > 0 else "0%")
+        
+        st.markdown("---")
+        col_chart, col_insights = st.columns([2, 1])
+        
+        with col_chart:
+            st.markdown("### 📊 Stock Status Distribution")
+            chart_data = pd.DataFrame({
+                "Status": ["Shortage", "Low Stock", "Normal Stock"],
+                "Count": [shortages_count, low_stock_count, normal_count]
+            }).set_index("Status")
+            st.bar_chart(chart_data)
+            
+        with col_insights:
+            st.markdown("### 💡 Executive Insights")
+            if shortages_count > 0:
+                st.error(f"⚠️ **Attention Required**: There are {shortages_count} critical shortages affecting production lines immediately!")
+            else:
+                st.success("✅ **Operations Stable**: All inventory levels are currently healthy and operating smoothly.")
+            st.info("ℹ️ Use the sidebar to navigate to specific department workflows (Production, Warehouse, Procurement, Transport).")
+
+        st.markdown("### 📋 Global Master Data Table")
+        
+        # Export Button for Global Data
+        excel_data = convert_df_to_excel(global_df)
+        st.download_button(
+            label="📥 Download Global Master Data as Excel",
+            data=excel_data,
+            file_name="Motherson_Global_Stock_Report.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
         
         st.dataframe(global_df, use_container_width=True)
 
-# --- 2. SPECIFIC DEPARTMENTS ---
+# --- 2. SPECIFIC DEPARTMENTS (With Search, Add Item & Export) ---
 else:
     current_file = file_mapping[menu]
     df, file_sha = load_excel_data(current_file, menu)
@@ -291,14 +331,70 @@ else:
             df[col] = ""
 
     df_view = df[specific_cols]
-    
+
+    # --- Search / Filter Section & Export Button ---
+    col_search, col_export = st.columns([3, 1])
+    with col_search:
+        st.markdown("### 🔍 Search & Filter")
+        search_query = st.text_input("Search by Product Code or Description:", "")
+        if search_query:
+            mask = df_view.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
+            df_view = df_view[mask]
+            
+    with col_export:
+        st.markdown("### 💾 Export Data")
+        dept_excel = convert_df_to_excel(df_view)
+        st.download_button(
+            label="📥 Download Excel",
+            data=dept_excel,
+            file_name=f"{menu.replace(' ', '_')}_Report.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"download_{menu}"
+        )
+
+    # --- Add New Product Expander ---
+    with st.expander("➕ Add New Product Entry"):
+        with st.form(key=f"add_form_{menu}"):
+            col_a, col_b, col_c = st.columns(3)
+            with col_a:
+                new_pcode = st.text_input("Product Code (e.g., PROD-100)")
+            with col_b:
+                new_pdesc = st.text_input("Product Description")
+            with col_c:
+                new_qty = st.number_input("Quantity / Requirement", min_value=0.0, value=100.0)
+            
+            submit_add = st.form_submit_button("Add Product to List")
+            if submit_add and new_pcode:
+                new_row = {c: "" for c in df.columns}
+                new_row["Alert ID"] = f"ALT-{new_pcode}"
+                new_row["Date"] = datetime.now().strftime("%Y-%m-%d")
+                new_row["Product Code"] = new_pcode
+                new_row["Product Description"] = new_pdesc
+                if "Quantity Required" in new_row: new_row["Quantity Required"] = new_qty
+                if "Quantity Available" in new_row: new_row["Quantity Available"] = new_qty
+                new_row["Last Updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                
+                df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+                save_to_github(df, current_file, f"Add product {new_pcode} in {menu}", file_sha)
+                st.success(f"Product {new_pcode} added successfully!")
+                st.rerun()
+
+    # --- Data Editor ---
     edited_df = st.data_editor(df_view, num_rows="dynamic", key=f"{menu}_editor")
     
     if st.button("💾 Save Changes & Sync Across Departments"):
         current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         edited_df["Last Updated"] = current_time_str
         
-        save_to_github(edited_df, current_file, f"Update {menu}", file_sha)
+        # Merge edits back into full df columns
+        for idx, row in edited_df.iterrows():
+            p_code = row.get("Product Code")
+            match_idx = df[df["Product Code"] == p_code].index
+            if not match_idx.empty:
+                for col in edited_df.columns:
+                    df.loc[match_idx, col] = row[col]
+
+        save_to_github(df, current_file, f"Update {menu}", file_sha)
         
         if "Production" in menu or "Warehouse" in menu:
             other_menu = "📦 Warehouse" if "Production" in menu else "🏭 Production"
