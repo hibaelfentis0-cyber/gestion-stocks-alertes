@@ -44,20 +44,30 @@ file_mapping = {
 
 # Helper function to calculate Smart Stock Status, Reorder Point & Priority automatically
 def calculate_intelligence(row):
-    avail = pd.to_numeric(row.get("Quantity Available", 0), errors='coerce')
-    req = pd.to_numeric(row.get("Quantity Required", 0), errors='coerce')
-    daily_cons = pd.to_numeric(row.get("Daily Consumption", 5), errors='coerce')
-    lead_time = pd.to_numeric(row.get("Lead Time", 5), errors='coerce')
-    safety_stock = pd.to_numeric(row.get("Safety Stock", 10), errors='coerce')
+    try:
+        avail = float(row.get("Quantity Available", 0))
+    except:
+        avail = 0.0
+    try:
+        req = float(row.get("Quantity Required", 0))
+    except:
+        req = 0.0
+    try:
+        daily_cons = float(row.get("Daily Consumption", 5))
+    except:
+        daily_cons = 5.0
+    try:
+        lead_time = float(row.get("Lead Time", 5))
+    except:
+        lead_time = 5.0
+    try:
+        safety_stock = float(row.get("Safety Stock", 10))
+    except:
+        safety_stock = 10.0
     
-    if pd.isna(avail): avail = 0
-    if pd.isna(req): req = 0
-    if pd.isna(daily_cons) or daily_cons <= 0: daily_cons = 1
-    if pd.isna(lead_time): lead_time = 5
-    if pd.isna(safety_stock): safety_stock = 10
+    if daily_cons <= 0: daily_cons = 1.0
     
     reorder_point = (daily_cons * lead_time) + safety_stock
-    
     shortage = req - avail
     if shortage < 0: shortage = 0
     
@@ -86,7 +96,7 @@ def calculate_intelligence(row):
     
     return stock_status, priority, shortage, reorder_point, stock_out_date
 
-# Function to load data with separated roles
+# Safe data loader to prevent crashes
 def load_excel_data(filename, dept_name):
     try:
         file_content = repo.get_contents(filename)
@@ -111,34 +121,60 @@ def load_excel_data(filename, dept_name):
         pass
 
     master_codes = set()
-    if not prod_df.empty and "Product Code" in prod_df.columns:
-        master_codes.update(prod_df["Product Code"].dropna().tolist())
-    if not wh_df.empty and "Product Code" in wh_df.columns:
-        master_codes.update(wh_df["Product Code"].dropna().tolist())
-    if not df.empty and "Product Code" in df.columns:
-        master_codes.update(df["Product Code"].dropna().tolist())
+    for d in [prod_df, wh_df, df]:
+        if not d.empty and "Product Code" in d.columns:
+            for code in d["Product Code"].dropna().tolist():
+                if str(code).strip() != "":
+                    master_codes.add(str(code))
 
-    prod_map = {r.get("Product Code"): r for _, r in prod_df.iterrows() if pd.notna(r.get("Product Code"))} if not prod_df.empty else {}
-    wh_map = {r.get("Product Code"): r for _, r in wh_df.iterrows() if pd.notna(r.get("Product Code"))} if not wh_df.empty else {}
-    current_map = {r.get("Product Code"): r for _, r in df.iterrows() if pd.notna(r.get("Product Code"))} if not df.empty else {}
+    if not master_codes:
+        master_codes = {"PROD-001"}
+
+    prod_map = {}
+    if not prod_df.empty and "Product Code" in prod_df.columns:
+        for _, r in prod_df.iterrows():
+            pc = r.get("Product Code")
+            if pd.notna(pc): prod_map[str(pc)] = r.to_dict()
+
+    wh_map = {}
+    if not wh_df.empty and "Product Code" in wh_df.columns:
+        for _, r in wh_df.iterrows():
+            pc = r.get("Product Code")
+            if pd.notna(pc): wh_map[str(pc)] = r.to_dict()
+
+    current_map = {}
+    if not df.empty and "Product Code" in df.columns:
+        for _, r in df.iterrows():
+            pc = r.get("Product Code")
+            if pd.notna(pc): current_map[str(pc)] = r.to_dict()
 
     combined_rows = []
     for p_code in master_codes:
         p_row = prod_map.get(p_code, current_map.get(p_code, {}))
         w_row = wh_map.get(p_code, current_map.get(p_code, {}))
         
-        req = pd.to_numeric(p_row.get("Quantity Required", 100), errors='coerce')
-        avail = pd.to_numeric(w_row.get("Quantity Available", 50), errors='coerce')
+        try:
+            req = float(p_row.get("Quantity Required", 100))
+        except:
+            req = 100.0
+            
+        try:
+            avail = float(w_row.get("Quantity Available", 50))
+        except:
+            avail = 50.0
         
         base_src = p_row if dept_name == "🏭 Production" else w_row
-        if not base_src:
-            base_src = w_row if bool(w_row) else p_row
-            
+        if not base_src or not isinstance(base_src, dict) or len(base_src) == 0:
+            base_src = w_row if (w_row and isinstance(w_row, dict) and len(w_row) > 0) else p_row
+        if not isinstance(base_src, dict):
+            base_src = {}
+
         temp_dict = {
-            "Quantity Available": avail, "Quantity Required": req,
-            "Daily Consumption": base_src.get("Daily Consumption", 5) if isinstance(base_src, dict) else 5,
-            "Lead Time": base_src.get("Lead Time", 5) if isinstance(base_src, dict) else 5,
-            "Safety Stock": base_src.get("Safety Stock", 10) if isinstance(base_src, dict) else 10
+            "Quantity Available": avail, 
+            "Quantity Required": req,
+            "Daily Consumption": base_src.get("Daily Consumption", 5),
+            "Lead Time": base_src.get("Lead Time", 5),
+            "Safety Stock": base_src.get("Safety Stock", 10)
         }
         stock_status, priority, shortage, reorder_point, stock_out_date = calculate_intelligence(temp_dict)
 
@@ -151,10 +187,10 @@ def load_excel_data(filename, dept_name):
             notif_status = "✅ Normal (Stock OK)"
 
         row_data = {
-            "Alert ID": base_src.get("Alert ID", f"ALT-{p_code}") if isinstance(base_src, dict) else f"ALT-{p_code}",
-            "Date": base_src.get("Date", datetime.now().strftime("%Y-%m-%d")) if isinstance(base_src, dict) else datetime.now().strftime("%Y-%m-%d"),
+            "Alert ID": base_src.get("Alert ID", f"ALT-{p_code}"),
+            "Date": base_src.get("Date", datetime.now().strftime("%Y-%m-%d")),
             "Product Code": p_code,
-            "Product Description": base_src.get("Product Description", "None") if isinstance(base_src, dict) else "None",
+            "Product Description": base_src.get("Product Description", "Standard Product"),
             "Quantity Required": req,
             "Quantity Available": avail,
             "Shortage Quantity": shortage,
@@ -166,12 +202,20 @@ def load_excel_data(filename, dept_name):
             "Safety Stock": temp_dict["Safety Stock"],
             "Reorder Point": reorder_point,
             "Estimated Stock-Out Date": stock_out_date,
-            "Lifecycle Stage": base_src.get("Lifecycle Stage", "Alert Created") if isinstance(base_src, dict) else "Alert Created",
-            "Last Updated": base_src.get("Last Updated", datetime.now().strftime("%Y-%m-%d %H:%M")) if isinstance(base_src, dict) else datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "Lifecycle Stage": base_src.get("Lifecycle Stage", "Alert Created"),
+            "Last Updated": base_src.get("Last Updated", datetime.now().strftime("%Y-%m-%d %H:%M")),
             "Production Line": p_row.get("Production Line", "") if isinstance(p_row, dict) else "",
             "Warehouse Location": w_row.get("Warehouse Location", "") if isinstance(w_row, dict) else "",
-            "Comments": base_src.get("Comments", "") if isinstance(base_src, dict) else ""
+            "Comments": base_src.get("Comments", "")
         }
+        
+        # Specific fields for Procurement and Transport if applicable
+        if "Supplier" in base_src: row_data["Supplier"] = base_src.get("Supplier", "")
+        if "Procurement Status" in base_src: row_data["Procurement Status"] = base_src.get("Procurement Status", "Pending Procurement Approval")
+        if "Transport" in base_src: row_data["Transport"] = base_src.get("Transport", "Road")
+        if "Truck Number" in base_src: row_data["Truck Number"] = base_src.get("Truck Number", "")
+        if "Transport Status" in base_src: row_data["Transport Status"] = base_src.get("Transport Status", "In Transit")
+
         combined_rows.append(row_data)
 
     final_df = pd.DataFrame(combined_rows)
@@ -242,7 +286,11 @@ else:
         st.markdown("🚚 **Transport Tracking**")
         specific_cols = ["Alert ID", "Date", "Product Code", "Product Description", "Quantity Available", "Quantity Required", "Shortage Quantity", "Stock Status", "Priority", "Transport", "Transport Status", "Last Updated"]
 
-    df_view = df[[c for c in specific_cols if c in df.columns]]
+    for col in specific_cols:
+        if col not in df.columns:
+            df[col] = ""
+
+    df_view = df[specific_cols]
     
     edited_df = st.data_editor(df_view, num_rows="dynamic", key=f"{menu}_editor")
     
