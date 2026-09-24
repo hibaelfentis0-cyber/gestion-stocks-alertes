@@ -43,21 +43,26 @@ if "transport_df" not in st.session_state:
         "Actual Delivery Date", "Transport Status", "Comments"
     ])
 
-# --- SIDEBAR NAVIGATION ---
+# --- SIDEBAR NAVIGATION & SEARCH ---
 st.sidebar.markdown("# 🏢 Stock Alert System")
 st.sidebar.markdown("### Management Dashboard")
 st.sidebar.markdown("---")
 
-menu = st.sidebar.radio(
-    "Navigation Menu",
-    [
-        "📈 Dashboard",
-        "1. Production",
-        "2. Warehouse",
-        "3. Procurement",
-        "4. Transport"
-    ]
-)
+# Global Search Bar inside Sidebar
+search_query = st.sidebar.text_input("🔍 Search in System", placeholder="Type to search parts, POs...")
+
+st.sidebar.markdown("---")
+
+# Menu options with symbols and no numbers
+menu_options = [
+    "📈 Dashboard",
+    "🏭 Production",
+    "📦 Warehouse",
+    "🛒 Procurement",
+    "🚚 Transport"
+]
+
+menu = st.sidebar.radio("Navigation Menu", menu_options)
 
 # Helper function to convert dataframe to excel for download
 def convert_df_to_excel(df):
@@ -65,6 +70,50 @@ def convert_df_to_excel(df):
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False)
     return output.getvalue()
+
+# --- GLOBAL SEARCH FILTER DISPLAY (If user types something) ---
+if search_query:
+    st.markdown(f"## 🔍 Global Search Results for: *{search_query}*")
+    
+    q = search_query.lower()
+    
+    col_s1, col_s2 = st.columns(2)
+    with col_s1:
+        st.markdown("### 📦 Warehouse Matches")
+        wh_df = st.session_state.warehouse_df
+        if not wh_df.empty:
+            res_wh = wh_df[wh_df.astype(str).apply(lambda x: x.str.lower().str.contains(q)).any(axis=1)]
+            st.dataframe(res_wh, width="stretch")
+        else:
+            st.info("No warehouse data.")
+            
+        st.markdown("### 🛒 Procurement Matches")
+        proc_df = st.session_state.procurement_df
+        if not proc_df.empty:
+            res_proc = proc_df[proc_df.astype(str).apply(lambda x: x.str.lower().str.contains(q)).any(axis=1)]
+            st.dataframe(res_proc, width="stretch")
+        else:
+            st.info("No procurement data.")
+
+    with col_s2:
+        st.markdown("### 🏭 Production Matches")
+        prod_df = st.session_state.production_df
+        if not prod_df.empty:
+            res_prod = prod_df[prod_df.astype(str).apply(lambda x: x.str.lower().str.contains(q)).any(axis=1)]
+            st.dataframe(res_prod, width="stretch")
+        else:
+            st.info("No production data.")
+
+        st.markdown("### 🚚 Transport Matches")
+        trans_df = st.session_state.transport_df
+        if not trans_df.empty:
+            res_trans = trans_df[trans_df.astype(str).apply(lambda x: x.str.lower().str.contains(q)).any(axis=1)]
+            st.dataframe(res_trans, width="stretch")
+        else:
+            st.info("No transport data.")
+            
+    st.markdown("---")
+    st.stop()  # Stop execution here so it doesn't show standard menu page while searching
 
 # ==========================================
 # 1. DASHBOARD
@@ -80,7 +129,6 @@ if menu == "📈 Dashboard":
     wh_df = st.session_state.warehouse_df
     trans_df = st.session_state.transport_df
 
-    # Global KPI Calculations
     total_alerts = len(wh_df)
     open_alerts = len(wh_df[wh_df["Stock Status"].isin(["Shortage", "Out of Stock", "Critical Stock"])]) if not wh_df.empty else 0
     critical_alerts = len(wh_df[wh_df["Stock Status"].isin(["Critical Stock", "Out of Stock"])]) if not wh_df.empty else 0
@@ -120,7 +168,7 @@ if menu == "📈 Dashboard":
 # ==========================================
 # 2. PRODUCTION DEPARTMENT
 # ==========================================
-elif menu == "1. Production":
+elif menu == "🏭 Production":
     st.title("🏭 Production Department")
     st.markdown("Create new stock alerts by submitting required materials and quantities for production.")
     st.markdown("---")
@@ -139,7 +187,6 @@ elif menu == "1. Production":
                 else:
                     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
                     
-                    # Add to Production session state
                     new_prod = pd.DataFrame([{
                         "Part / Material": part_material,
                         "Required Quantity": required_qty,
@@ -148,7 +195,6 @@ elif menu == "1. Production":
                     }])
                     st.session_state.production_df = pd.concat([st.session_state.production_df, new_prod], ignore_index=True)
 
-                    # Automatically synchronize / push to Warehouse data
                     wh_existing = st.session_state.warehouse_df
                     if not wh_existing.empty and part_material in wh_existing["Part / Material"].values:
                         wh_existing.loc[wh_existing["Part / Material"] == part_material, "Required Quantity"] = required_qty
@@ -177,7 +223,7 @@ elif menu == "1. Production":
 # ==========================================
 # 3. WAREHOUSE OPERATIONS
 # ==========================================
-elif menu == "2. Warehouse":
+elif menu == "📦 Warehouse":
     st.title("📦 Warehouse Operations")
     st.markdown("Manage stock availability, view automated calculations, and add warehouse items directly.")
     st.markdown("---")
@@ -272,7 +318,6 @@ elif menu == "2. Warehouse":
 
             st.session_state.warehouse_df = pd.DataFrame(updated_rows)
 
-            # Automatically propagate shortages to Procurement
             for _, r in st.session_state.warehouse_df.iterrows():
                 if r["Stock Status"] in ["Shortage", "Critical Stock", "Out of Stock"]:
                     part = r["Part / Material"]
@@ -308,7 +353,7 @@ elif menu == "2. Warehouse":
 # ==========================================
 # 4. PROCUREMENT DEPARTMENT
 # ==========================================
-elif menu == "3. Procurement":
+elif menu == "🛒 Procurement":
     st.title("🛒 Procurement & Supply")
     st.markdown("Review automated shortage triggers received from the Warehouse, manage suppliers, and add purchase orders.")
     st.markdown("---")
@@ -397,7 +442,7 @@ elif menu == "3. Procurement":
 # ==========================================
 # 5. TRANSPORT TRACKING
 # ==========================================
-elif menu == "4. Transport":
+elif menu == "🚚 Transport":
     st.title("🚚 Transport Tracking")
     st.markdown("Monitor delivery routes, shipment statuses, and add direct transport tracking entries.")
     st.markdown("---")
